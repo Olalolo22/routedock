@@ -7,11 +7,12 @@
     "build": "wrangler deploy --dry-run --outdir dist",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "tsx --test $(find src -name '*.test.ts' | sort)",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@routedock/routedock": "workspace:*",
+    "@stellar/mpp": "^0.4.0",
     "@supabase/supabase-js": "^2.47.0",
     "hono": "^4.12.23"
   },

@@ -1,7 +1,12 @@
 import { DurableObject } from 'cloudflare:workers'
 import { Hono } from 'hono'
+import { upgradeWebSocket } from 'hono/cloudflare-workers'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { routedockHono } from '@routedock/routedock/provider/hono'
+import {
+  routedockHono,
+  mppSessionWsVerified,
+} from '@routedock/routedock/provider/hono'
+import { Store } from '@stellar/mpp/channel/server'
 import { usdcToUnits } from '@routedock/routedock'
 import {
   buildManifest,
@@ -54,11 +59,14 @@ interface OrderBookResponse {
  * against: one instance per channel contract, serialized execution, and memory
  * that persists between requests.
  *
- * Residual limitation: `routedockHono` exposes no option to inject the channel
- * store, so mppx state still lives in DO memory rather than DO storage. If the
- * object is evicted mid-session, tracking resets. Sessions are short-lived so
- * this is a narrow window, but closing it properly needs a `sessionStore`
- * option upstream in the SDK.
+ * The SDK receives a store backed by this object's persistent storage, so mppx
+ * channel state survives isolate eviction.
+ *
+ * Not yet durable: routedockHono still tracks lastCumulativeAmount,
+ * voucherCount, lastSignatureHex and sessionPayerAddress in closure scope, and
+ * those are what the DELETE close path reads. If this object is evicted
+ * mid-session they reset, and close falls back to the client-supplied amount
+ * and signature. Moving them into the same store is the remaining half of #211.
  */
 export class ChannelSession extends DurableObject<Env> {
   private app: Hono | null = null
@@ -90,14 +98,23 @@ export class ChannelSession extends DurableObject<Env> {
 
     const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'}/stream/orderbook`
 
+    const sessionStore = this.ctx?.storage
+      ? Store.from({
+          get: (key: string) => this.ctx.storage.get(key),
+          put: (key: string, value: unknown) => this.ctx.storage.put(key, value),
+          delete: async (key: string) => { await this.ctx.storage.delete(key) },
+        })
+      : Store.memory()
+
     const app = new Hono()
 
     app.use(
       '*',
       routedockHono({
-        modes: ['mpp-session'],
+        modes: ['mpp-session', 'mpp-session-ws'],
         pricing: {
           'mpp-session': { rate: SESSION_RATE, channelFactory: channelContract },
+          'mpp-session-ws': { rate: SESSION_RATE, channelFactory: channelContract },
         },
         asset: 'USDC',
         assetContract,
@@ -105,6 +122,7 @@ export class ChannelSession extends DurableObject<Env> {
         network,
         payeeSecretKey: env.STELLAR_PAYEE_SECRET,
         commitmentPublicKey,
+        sessionStore,
         manifest,
         onSessionOpen: async (channelId, payer) => {
           if (!supabase) return
@@ -176,29 +194,79 @@ export class ChannelSession extends DurableObject<Env> {
       }),
     )
 
+    // WebSocket transport (mpp-session-ws). Registered before the SSE data
+    // route: the routedockHono middleware above verifies the handshake's
+    // Payment credential (MPP_SESSION_WS_VERIFIED); upgrade requests are
+    // answered with 101 here, everything else falls through to the data route.
+    const fetchOrderbook = async () => {
+      const params = new URLSearchParams({
+        selling_asset_type: 'native',
+        buying_asset_type: 'credit_alphanum4',
+        buying_asset_code: 'USDC',
+        buying_asset_issuer: USDC_ISSUERS[network],
+        limit: '5',
+      })
+      const response = await fetch(`${HORIZON_URLS[network]}/order_book?${params.toString()}`, {
+        headers: { accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error(`Horizon responded ${response.status}`)
+      const orderbook = (await response.json()) as OrderBookResponse
+      return {
+        pair: 'XLM/USDC',
+        timestamp: new Date().toISOString(),
+        source: 'stellar-dex',
+        network,
+        asks: orderbook.asks.slice(0, 5).map((a) => ({ price: a.price, amount: a.amount })),
+        bids: orderbook.bids.slice(0, 5).map((b) => ({ price: b.price, amount: b.amount })),
+      }
+    }
+
+    app.get(
+      '/stream/orderbook',
+      upgradeWebSocket((c) => {
+        // Never upgrade a handshake the payment middleware did not verify.
+        // (The middleware returns 402 before reaching this route, so this is
+        // defense in depth against misconfiguration — fail fast rather than
+        // opening an unpaid socket.)
+        if (!mppSessionWsVerified(c)) {
+          throw new Error('mpp-session-ws: refusing unverified WebSocket handshake')
+        }
+
+        let timer: ReturnType<typeof setInterval> | null = null
+        let socket: { send: (data: string) => void } | null = null
+        const push = async () => {
+          try {
+            socket?.send(JSON.stringify(await fetchOrderbook()))
+          } catch (err) {
+            console.error('[horizon] orderbook ws error:', err)
+          }
+        }
+
+        return {
+          onMessage: (_evt, ws) => {
+            socket = ws
+            // First message kicks off a periodic snapshot push. Cloudflare's
+            // WebSocketPair has no onOpen, so a client message is the natural
+            // trigger for the stream.
+            if (!timer) {
+              void push()
+              timer = setInterval(() => void push(), 5_000)
+            }
+            void ws.send(JSON.stringify({ type: 'ack', at: new Date().toISOString() }))
+          },
+          onClose: () => {
+            if (timer) {
+              clearInterval(timer)
+              timer = null
+            }
+          },
+        }
+      }),
+    )
+
     app.get('/stream/orderbook', async (c) => {
       try {
-        const params = new URLSearchParams({
-          selling_asset_type: 'native',
-          buying_asset_type: 'credit_alphanum4',
-          buying_asset_code: 'USDC',
-          buying_asset_issuer: USDC_ISSUERS[network],
-          limit: '5',
-        })
-        const response = await fetch(`${HORIZON_URLS[network]}/order_book?${params.toString()}`, {
-          headers: { accept: 'application/json' },
-        })
-        if (!response.ok) throw new Error(`Horizon responded ${response.status}`)
-        const orderbook = (await response.json()) as OrderBookResponse
-
-        return c.json({
-          pair: 'XLM/USDC',
-          timestamp: new Date().toISOString(),
-          source: 'stellar-dex',
-          network,
-          asks: orderbook.asks.slice(0, 5).map((a) => ({ price: a.price, amount: a.amount })),
-          bids: orderbook.bids.slice(0, 5).map((b) => ({ price: b.price, amount: b.amount })),
-        })
+        return c.json(await fetchOrderbook())
       } catch (err) {
         console.error('[horizon] orderbook error:', err)
         return c.json({ error: 'Upstream Horizon error' }, 502)

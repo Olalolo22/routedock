@@ -5,7 +5,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl,
     crypto::Hash,
     panic_with_error, symbol_short,
-    Address, Bytes, BytesN, Env, IntoVal, Map, Symbol, Vec,
+    Address, Bytes, BytesN, Env, Map, Symbol, TryFromVal, Vec,
 };
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
@@ -56,6 +56,8 @@ pub enum Error {
     NoPendingAdmin = 8,
     ContractFrozen = 9,
     InvalidAmount = 10,
+    UnauthorizedFunction = 11,
+    MalformedAuthContext = 12,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -322,6 +324,9 @@ impl AgentVault {
 // Architecture follows Crossmint/stellar-smart-account v1.0.0:
 //   • Signature = Ed25519 BytesN<64>
 //   • __check_auth runs policies against every Context::Contract("transfer") entry
+//   • Default-deny: any other authorization context (SAC approve/burn, non-
+//     contract host fns) is rejected with Error::UnauthorizedFunction — a
+//     stolen agent key cannot bypass the caps via a non-transfer call
 //   • Policy 1 — DailyCapPolicy:  keyed by (SPEND_PREFIX, seq / 17280) in
 //     temporary storage; resets automatically when the bucket rolls over
 //   • Policy 2 — EndpointAllowlistPolicy: recipient from args[1] checked
@@ -388,13 +393,42 @@ impl CustomAccountInterface for AgentVault {
             .unwrap_or(0);
 
         // ── Per-context policy checks ─────────────────────────────────────────
+        // Default-deny: the policies below only fire for SAC transfer calls, so
+        // ANY other authorization context must be rejected rather than silently
+        // skipped. Without this, a stolen agent key could sign an auth for the
+        // USDC SAC's approve()/burn() (or a create_contract host fn) and drain
+        // the vault via transfer_from without ever touching a cap.
         for context in auth_contexts.iter() {
-            if let Context::Contract(ctx) = context {
-                if ctx.fn_name == Symbol::new(&env, "transfer") {
+            match context {
+                Context::Contract(ctx) if ctx.fn_name == Symbol::new(&env, "transfer") => {
                     // SAC transfer(from: Address, to: Address, amount: i128)
-                    let from: Address = ctx.args.get(0).unwrap().into_val(&env);
-                    let to: Address = ctx.args.get(1).unwrap().into_val(&env);
-                    let amount: i128 = ctx.args.get(2).unwrap().into_val(&env);
+                    if ctx.args.len() != 3 {
+                        return Err(Error::MalformedAuthContext);
+                    }
+                    let from: Address = ctx
+                        .args
+                        .get(0)
+                        .ok_or(Error::MalformedAuthContext)
+                        .and_then(|value| {
+                            Address::try_from_val(&env, &value)
+                                .map_err(|_| Error::MalformedAuthContext)
+                        })?;
+                    let to: Address = ctx
+                        .args
+                        .get(1)
+                        .ok_or(Error::MalformedAuthContext)
+                        .and_then(|value| {
+                            Address::try_from_val(&env, &value)
+                                .map_err(|_| Error::MalformedAuthContext)
+                        })?;
+                    let amount: i128 = ctx
+                        .args
+                        .get(2)
+                        .ok_or(Error::MalformedAuthContext)
+                        .and_then(|value| {
+                            i128::try_from_val(&env, &value)
+                                .map_err(|_| Error::MalformedAuthContext)
+                        })?;
                     let asset: Address = ctx.contract.clone();
 
                     // Reject non-positive amounts: a negative amount would
@@ -451,6 +485,11 @@ impl CustomAccountInterface for AgentVault {
                         (amount, asset, day_spend),
                     );
                 }
+                // Any non-transfer contract call (SAC approve, burn, …) or
+                // non-contract host fn (create_contract) is unauthorized.
+                _ => {
+                    return Err(Error::UnauthorizedFunction);
+                }
             }
         }
 
@@ -475,7 +514,7 @@ impl CustomAccountInterface for AgentVault {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        auth::ContractContext,
+        auth::{ContractContext, ContractExecutable, CreateContractHostFnContext},
         testutils::{Address as _, BytesN as _, Ledger},
         IntoVal, FromVal,
     };
@@ -526,6 +565,15 @@ mod tests {
         })
     }
 
+    fn malformed_transfer_context(env: &Env, args: soroban_sdk::Vec<soroban_sdk::Val>) -> Context {
+        let token = Address::generate(env);
+        Context::Contract(ContractContext {
+            contract: token,
+            fn_name: symbol_short!("transfer"),
+            args,
+        })
+    }
+
     /// Read (day_spend, per_payee_spend, lifetime_spend) directly from storage.
     fn read_spend_counters(env: &Env, vault_id: &Address, to: &Address) -> (i128, i128, i128) {
         let day_bucket: u32 = env.ledger().sequence() / 17_280;
@@ -568,6 +616,54 @@ mod tests {
             &contexts,
         );
         assert!(result.is_ok(), "valid payment should pass: {result:?}");
+    }
+
+    #[test]
+    fn test_transfer_context_with_wrong_arity_returns_typed_error() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, _) = setup(&env);
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+
+        for args in [
+            Vec::new(&env),
+            Vec::from_array(&env, [Address::generate(&env).into_val(&env)]),
+            Vec::from_array(
+                &env,
+                [Address::generate(&env).into_val(&env), Address::generate(&env).into_val(&env)],
+            ),
+        ] {
+            let contexts = Vec::from_array(&env, [malformed_transfer_context(&env, args)]);
+            let result = env.try_invoke_contract_check_auth::<Error>(
+                &vault_id,
+                &payload,
+                sig.clone().into_val(&env),
+                &contexts,
+            );
+            assert_eq!(result.unwrap_err().unwrap(), Error::MalformedAuthContext);
+        }
+    }
+
+    #[test]
+    fn test_transfer_context_with_wrong_amount_type_returns_typed_error() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, _) = setup(&env);
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let args = (
+            Address::generate(&env),
+            Address::generate(&env),
+            symbol_short!("bad_amt"),
+        )
+            .into_val(&env);
+        let contexts = Vec::from_array(&env, [malformed_transfer_context(&env, args)]);
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert_eq!(result.unwrap_err().unwrap(), Error::MalformedAuthContext);
     }
 
     /// Test 2: payment exceeding daily cap is rejected
@@ -2220,6 +2316,153 @@ mod tests {
         assert_eq!(Address::from_val(&env, &topics.get(1).unwrap()), admin);
         assert_eq!(Address::from_val(&env, &topics.get(2).unwrap()), new_admin);
     }
+
+    /// A SAC approve() auth context (from, spender, amount, expiration_ledger).
+    fn approve_context(env: &Env, amount: i128) -> Context {
+        let token = Address::generate(env);
+        let from = Address::generate(env);
+        let spender = Address::generate(env);
+        Context::Contract(ContractContext {
+            contract: token,
+            fn_name: symbol_short!("approve"),
+            args: (from, spender, amount, 100_000_u32).into_val(env),
+        })
+    }
+
+    /// A SAC burn() auth context (from, amount).
+    fn burn_context(env: &Env, amount: i128) -> Context {
+        let token = Address::generate(env);
+        let from = Address::generate(env);
+        Context::Contract(ContractContext {
+            contract: token,
+            fn_name: symbol_short!("burn"),
+            args: (from, amount).into_val(env),
+        })
+    }
+
+    /// Test 40: default-deny — an SAC approve() auth context is rejected even
+    /// when signed by the agent key, so a stolen key cannot drain the vault via
+    /// approve() + transfer_from() (issue #132).
+    #[test]
+    fn test_approve_context_rejected() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, _) = setup(&env);
+
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let contexts = Vec::from_array(&env, [approve_context(&env, 1_000_000)]);
+
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::UnauthorizedFunction,
+            "approve must not bypass the caps"
+        );
+    }
+
+    /// Test 41: default-deny — an SAC burn() auth context is rejected.
+    #[test]
+    fn test_burn_context_rejected() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, _) = setup(&env);
+
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let contexts = Vec::from_array(&env, [burn_context(&env, 100_000)]);
+
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::UnauthorizedFunction,
+            "burn must not bypass the caps"
+        );
+    }
+
+    /// Test 42: default-deny — a non-contract host fn context
+    /// (create_contract) is rejected rather than silently skipped.
+    #[test]
+    fn test_create_contract_host_fn_rejected() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, _) = setup(&env);
+
+        let create_ctx = Context::CreateContractHostFn(CreateContractHostFnContext {
+            executable: ContractExecutable::Wasm(BytesN::<32>::random(&env)),
+            salt: BytesN::<32>::random(&env),
+        });
+
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let contexts = Vec::from_array(&env, [create_ctx]);
+
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::UnauthorizedFunction,
+            "create_contract host fn must not bypass the caps"
+        );
+    }
+
+    /// Test 43: a batch mixing a valid transfer with an approve is rejected
+    /// wholesale — one unauthorized function poisons the whole auth.
+    #[test]
+    fn test_mixed_transfer_and_approve_rejected() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, provider_a) = setup(&env);
+
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let contexts = Vec::from_array(
+            &env,
+            [transfer_context(&env, &provider_a, 100_000), approve_context(&env, 1_000_000)],
+        );
+
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            Error::UnauthorizedFunction,
+            "a mixed batch must not partially authorize"
+        );
+    }
+
+    /// Test 44: the success path survives the default-deny inversion — a lone
+    /// transfer within the caps still passes through the new match arm.
+    #[test]
+    fn test_transfer_still_authorized_after_default_deny() {
+        let env = Env::default();
+        let (_, agent_sk, vault_id, provider_a) = setup(&env);
+
+        let payload = BytesN::<32>::random(&env);
+        let sig = sign_payload(&env, &agent_sk, &payload);
+        let contexts = Vec::from_array(&env, [transfer_context(&env, &provider_a, 100_000)]);
+
+        let result = env.try_invoke_contract_check_auth::<Error>(
+            &vault_id,
+            &payload,
+            sig.into_val(&env),
+            &contexts,
+        );
+        assert!(result.is_ok(), "valid transfer must still pass: {result:?}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2305,4 +2548,3 @@ mod prop_tests {
         }
     }
 }
-

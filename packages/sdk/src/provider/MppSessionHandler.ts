@@ -2,9 +2,32 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import { Keypair } from '@stellar/stellar-sdk'
 import { stellar, close as channelClose, Store } from '@stellar/mpp/channel/server'
 import { Mppx, Request as MppxRequest } from 'mppx/server'
+import { Store as MppxStore } from 'mppx'
 import type { RouteDockManifest } from '../types.js'
 import { resolveVaultSettlementAddresses } from './internal/vaultSettlement.js'
 import { extractPayerAddress } from './payer.js'
+import { channelAuthorizer, withTypedChannelErrors } from './mppCompatibility.js'
+import type { Method } from 'mppx'
+
+/** Store shape extended with optional atomic update operation. */
+export type ChannelStore = MppxStore.Store & {
+  update?: (key: string, fn: (prev: unknown) => unknown) => Promise<unknown>
+}
+
+/** Expected payload shape for voucher cumulative amount entries. */
+export interface VoucherStoreValue {
+  amount: string
+  [key: string]: unknown
+}
+
+/** Validates that a stored store value is an object containing a numeric string amount. */
+export function isVoucherStoreValue(value: unknown): value is VoucherStoreValue {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.amount === 'string' && /^\d+$/.test(candidate.amount)
+}
 
 type Network = 'testnet' | 'mainnet'
 
@@ -116,12 +139,12 @@ export function createMppSessionHandler(opts: MppSessionHandlerOptions): Request
     }
   }
 
-  const wrappedStore: any = {
+  const wrappedStore: ChannelStore = {
     async get(key: string) { return innerStore.get(key) },
     async put(key: string, value: unknown) {
       await innerStore.put(key, value)
-      if (key === cumulativeKey && value && typeof value === 'object' && 'amount' in (value as Record<string, unknown>)) {
-        lastCumulativeAmount = BigInt((value as { amount: string }).amount)
+      if (key === cumulativeKey && isVoucherStoreValue(value)) {
+        lastCumulativeAmount = BigInt(value.amount)
         voucherCount++
         // Voucher activity — this session is alive again.
         settledCleanly = false
@@ -148,20 +171,26 @@ export function createMppSessionHandler(opts: MppSessionHandlerOptions): Request
       }
     },
     async delete(key: string) { return innerStore.delete(key) },
-    update(key: any, fn: any) { return (innerStore as any).update(key, fn) },
+    async update(key: string, fn: (prev: unknown) => unknown) {
+      const storeWithUpdate = innerStore as Partial<ChannelStore>
+      if (typeof storeWithUpdate.update === 'function') {
+        return storeWithUpdate.update(key, fn)
+      }
+      throw new Error('Store does not support atomic update operations')
+    },
   }
 
   const mppx = Mppx.create({
     secretKey: opts.payeeSecretKey,
     methods: [
-      stellar.channel({
+      withTypedChannelErrors(stellar.channel({
         channel: opts.channelFactory,
         commitmentKey: opts.commitmentPublicKey,
         network: networkId,
         store: wrappedStore,
         sourceAccount: payeeKeypair.publicKey(),
-        feePayer: { envelopeSigner: payeeKeypair },
-      }),
+        feePayer: channelAuthorizer(payeeKeypair),
+      }) as Method.AnyServer),
     ],
   })
 
@@ -185,7 +214,7 @@ export function createMppSessionHandler(opts: MppSessionHandlerOptions): Request
             channel: opts.channelFactory,
             amount: closeAmount,
             signature: Buffer.from(closeSig, 'hex'),
-            feePayer: { envelopeSigner: payeeKeypair },
+            feePayer: channelAuthorizer(payeeKeypair),
             network: networkId,
           })
 
@@ -327,4 +356,3 @@ export function createMppSessionHandler(opts: MppSessionHandlerOptions): Request
     }
   }
 }
-

@@ -11,6 +11,8 @@
 
 import { Keypair } from '@stellar/stellar-sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { usdcToUnits } from '../internal/usdc.js'
+import { channelAuthorizer, formatMppError } from './mppCompatibility.js'
 
 type Network = 'testnet' | 'mainnet'
 
@@ -45,12 +47,7 @@ export interface ReconciliationStats {
 }
 
 export function decimalToStroops(amountStr: string): bigint {
-  if (!amountStr.includes('.')) {
-    return BigInt(amountStr)
-  }
-  const [whole, frac] = amountStr.split('.')
-  const paddedFrac = (frac || '').padEnd(7, '0').slice(0, 7)
-  return BigInt((whole || '0') + paddedFrac)
+  return BigInt(usdcToUnits(amountStr))
 }
 
 /**
@@ -119,7 +116,7 @@ export async function reconcileAbandonedSessions(
           channel: channelId,
           amount: closeAmount,
           signature: closeSig,
-          feePayer: { envelopeSigner: payeeKeypair },
+          feePayer: channelAuthorizer(payeeKeypair),
           network: networkId as 'stellar:testnet' | 'stellar:pubnet',
         })
 
@@ -147,7 +144,7 @@ export async function reconcileAbandonedSessions(
         stats.failedCount++
         stats.errors.push({
           channelId: session.channel_id,
-          reason: err instanceof Error ? err.message : String(err),
+          reason: formatMppError(err),
         })
       }
     }
@@ -155,7 +152,7 @@ export async function reconcileAbandonedSessions(
     return stats
   } catch (err) {
     throw new Error(
-      `Session reconciliation failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Session reconciliation failed: ${formatMppError(err)}`,
     )
   }
 }
@@ -192,7 +189,7 @@ export async function runStartupReconciliation(
       }
     }
   } catch (err) {
-    log(`[SessionReconciler] Startup reconciliation failed: ${err instanceof Error ? err.message : String(err)}`)
+    log(`[SessionReconciler] Startup reconciliation failed: ${formatMppError(err)}`)
     // Non-fatal: allow server to start even if reconciliation fails
   }
 }
