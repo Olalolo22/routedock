@@ -1,5 +1,4 @@
-import Ajv from 'ajv'
-import addFormats from 'ajv-formats'
+import { Validator, type Schema } from '@cfworker/json-schema'
 import type { RouteDockManifest, PaymentMode } from '../types.js'
 import {
   RouteDockError,
@@ -17,9 +16,7 @@ import schema from '../schemas/routedock.schema.json' assert { type: 'json' }
 import pkg from '../../package.json' assert { type: 'json' }
 import { verifyManifestSignature } from '../manifest/sign.js'
 
-const ajv = new Ajv()
-addFormats(ajv)
-const validateManifest = ajv.compile(schema)
+const validator = new Validator(schema as unknown as Schema, '7')
 
 const SDK_VERSION = pkg.version as string
 
@@ -207,8 +204,9 @@ export async function fetchManifest(
       throw wrapFetchError(err, `Manifest fetch error from ${url}`)
     }
 
-    if (!validateManifest(raw)) {
-      const msgs = ajv.errorsText(validateManifest.errors)
+    const result = validator.validate(raw)
+    if (!result.valid) {
+      const msgs = result.errors.map(err => err.error).join('; ')
       throw new RouteDockManifestError(`Invalid manifest at ${url}: ${msgs}`)
     }
 
