@@ -57,8 +57,8 @@ graph LR
 |---|---|---|
 | Application | voucher monotonic check | `packages/sdk/src/client/MppSessionClient.ts:currentCumulative` |
 | Application | manifest schema validation (AJV draft-07) | `packages/sdk/src/client/ModeRouter.ts` |
-| Database | monotonic cumulative trigger | `supabase/migrations/*_sessions.sql:enforce_monotonic_cumulative()` |
-| Database | RLS on sessions table | `supabase/migrations/*_rls.sql` |
+| Database | monotonic cumulative trigger | `supabase/migrations/001_init.sql:37,50` |
+| Database | RLS on sessions table | `supabase/migrations/001_init.sql:128-131` |
 | Contract | daily USDC cap policy | `contracts/agent-vault/src/lib.rs:__check_auth` |
 | Contract | endpoint allowlist policy | `contracts/agent-vault/src/lib.rs:__check_auth` |
 | Contract | session key expiry | `contracts/agent-vault/src/lib.rs:__check_auth` |
