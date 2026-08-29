@@ -69,9 +69,29 @@ export function decodeAuthSignature(encoded: string): import('./types.js').Nulth
   return raw as import('./types.js').NulthAuthSignature
 }
 
-/** Convert decimal USDC string to stroops (7 decimals) */
+/** Stellar USDC precision: 1 USDC = 10^7 base units (stroops). */
+export const USDC_DECIMALS = 7
+const USDC_SCALE = 10_000_000n
+
+/**
+ * Convert decimal USDC string to stroops (7 decimals, bigint), with no floating-point arithmetic.
+ *
+ * Rejects negative numbers, scientific notation, leading zeros, extra decimal precision,
+ * or non-numeric characters.
+ */
 export function usdcToStroops(amount: string): bigint {
-  const [whole = '0', frac = ''] = amount.split('.')
-  const padded = (frac + '0000000').slice(0, 7)
-  return BigInt(whole) * 1_000_0000n + BigInt(padded)
+  const trimmed = amount.trim()
+  const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(trimmed)
+  if (!match) {
+    throw new RangeError(`Invalid USDC amount: "${amount}"`)
+  }
+  const whole = match[1]!
+  const frac = match[2] ?? ''
+  if (frac.length > USDC_DECIMALS) {
+    throw new RangeError(
+      `USDC amount "${amount}" exceeds ${USDC_DECIMALS} decimals of precision`,
+    )
+  }
+  const fracUnits = BigInt(frac.padEnd(USDC_DECIMALS, '0'))
+  return BigInt(whole) * USDC_SCALE + fracUnits
 }

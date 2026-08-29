@@ -12,6 +12,8 @@ import {
   createPolicyState,
   decodeAuthSignature,
   setNulthPaymentContext,
+  usdcToStroops,
+  USDC_DECIMALS,
 } from '../index.js'
 
 const NULTH_ACCOUNT = 'CAX5IDLC2XHGQSEA2YN3LPLZ7EXLMRXYX3HFJGKFXS6B7OQXBKWO44LT'
@@ -161,4 +163,31 @@ console.log('✓ mainnet rejects the insecure mock prover at construction')
   })
   assert.equal(client.proverBackend, 'mock')
   console.log('✓ NulthClient stores prover backend')
+}
+
+// ── usdcToStroops validation ──────────────────────────────────────────────────
+
+{
+  assert.equal(USDC_DECIMALS, 7)
+  assert.equal(usdcToStroops('0'), 0n)
+  assert.equal(usdcToStroops('1.00'), 10_000_000n)
+  assert.equal(usdcToStroops('0.0001'), 1_000n)
+  assert.equal(usdcToStroops('0.0000001'), 1n)
+  assert.equal(usdcToStroops('  2.5  '), 25_000_000n)
+  assert.equal(usdcToStroops('10000'), 100_000_000_000n)
+
+  assert.throws(() => usdcToStroops('-5'), RangeError)
+  assert.throws(() => usdcToStroops('-1'), RangeError)
+  assert.throws(() => usdcToStroops('-0.5'), RangeError)
+  assert.throws(() => usdcToStroops('0012'), RangeError)
+  assert.throws(() => usdcToStroops('01'), RangeError)
+  assert.throws(() => usdcToStroops('1e-7'), RangeError)
+  assert.throws(() => usdcToStroops('1E-7'), RangeError)
+  assert.throws(() => usdcToStroops(''), RangeError)
+  assert.throws(() => usdcToStroops('   '), RangeError)
+  assert.throws(() => usdcToStroops('abc'), RangeError)
+  assert.throws(() => usdcToStroops('1.2.3'), RangeError)
+  assert.throws(() => usdcToStroops('1.123456789'), RangeError)
+  assert.throws(() => usdcToStroops('0.00000001'), RangeError)
+  console.log('✓ usdcToStroops validation and decimal conversion')
 }

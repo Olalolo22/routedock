@@ -11,6 +11,7 @@ import type { ClientStellarSigner } from '@x402/stellar'
 import type { SignAuthEntry } from '@stellar/stellar-sdk/contract'
 import type { RouteDockManifest, PaymentMode, VaultMode } from '../types.js'
 import { RouteDockManifestError } from '../errors.js'
+import { usdcToStroops } from '../internal/usdc.js'
 
 // ---------------------------------------------------------------------------
 // Inlined types (from @routedock/nulth-sdk/types)
@@ -107,12 +108,6 @@ function insecureMockProof(preimage: string): string {
 function encodeAuthSignature(proof: NulthProof): string {
   const payload: NulthAuthSignature = { nulth: 'zk-v1', proof }
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
-}
-
-function usdcToStroops(amount: string): bigint {
-  const [whole = '0', frac = ''] = amount.split('.')
-  const padded = (frac + '0000000').slice(0, 7)
-  return BigInt(whole) * 10_000_000n + BigInt(padded)
 }
 
 // ---------------------------------------------------------------------------
