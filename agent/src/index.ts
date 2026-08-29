@@ -182,15 +182,14 @@ async function main(): Promise<void> {
   // Consume exactly 50 SSE events from the session stream
   const TARGET_VOUCHERS = 50
   let voucherCount = 0
-  const rate = 0.0001 // matches manifest pricing['mpp-session'].rate
 
   try {
     for await (const _item of activeSession.stream()) {
       voucherCount++
 
       if (voucherCount % 10 === 0) {
-        const cumulative = (voucherCount * rate).toFixed(4)
-        log('mpp-session', `[Session] Vouchers: ${voucherCount}, Cumulative: $${cumulative}`)
+        const stats = activeSession.stats()
+        log('mpp-session', `[Session] Vouchers: ${stats.vouchersIssued}, Cumulative: $${stats.currentCumulative}`)
       }
 
       if (voucherCount >= TARGET_VOUCHERS) break
