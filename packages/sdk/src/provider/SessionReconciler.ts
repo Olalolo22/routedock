@@ -11,7 +11,7 @@
 
 import { Keypair } from '@stellar/stellar-sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { usdcToUnits } from '../internal/usdc.js'
+import { usdcToStroops } from '../internal/usdc.js'
 import { channelAuthorizer, formatMppError } from './mppCompatibility.js'
 
 type Network = 'testnet' | 'mainnet'
@@ -47,7 +47,7 @@ export interface ReconciliationStats {
 }
 
 export function decimalToStroops(amountStr: string): bigint {
-  return BigInt(usdcToUnits(amountStr))
+  return usdcToStroops(amountStr)
 }
 
 /**
