@@ -32,6 +32,20 @@ const WITNESS = 'test-witness-secret'
   console.log('✓ commitments hide allowlist and cap')
 }
 
+// ── Canonical USDC → stroops converter ──────────────────────────────────────
+
+{
+  const { usdcToStroops } = await import('../usdc.js')
+  assert.equal(usdcToStroops('1.00'), 10_000_000n)
+  assert.equal(usdcToStroops('0.0001'), 1_000n)
+  assert.equal(usdcToStroops('0'), 0n)
+  assert.throws(() => usdcToStroops('-1'), RangeError)
+  assert.throws(() => usdcToStroops('0.00000001'), RangeError)
+  assert.throws(() => usdcToStroops(''), RangeError)
+  assert.throws(() => usdcToStroops('1e-7'), RangeError)
+  console.log('✓ usdcToStroops canonical converter validates')
+}
+
 // ── Proof generation and auth signature encoding ─────────────────────────────
 
 {
