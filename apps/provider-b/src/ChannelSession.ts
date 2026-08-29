@@ -5,6 +5,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   routedockHono,
   mppSessionWsVerified,
+  registerProvider,
+  signManifest,
 } from '@routedock/routedock/provider/hono'
 import { Store } from '@stellar/mpp/channel/server'
 import {
@@ -94,6 +96,14 @@ export class ChannelSession extends DurableObject<Env> {
       env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY
         ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY)
         : null
+
+    if (supabase && env.STELLAR_PAYEE_SECRET) {
+      const baseUrl = env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'
+      const signed = signManifest(manifest, env.STELLAR_PAYEE_SECRET)
+      void registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
+        console.error('[registry] Failed to register provider-b:', err)
+      })
+    }
 
     const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'}/stream/orderbook`
 

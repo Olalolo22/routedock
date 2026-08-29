@@ -115,7 +115,15 @@ export function verifyManifestSignature(
     throw new RouteDockSignatureError('Manifest signature is not valid base64')
   }
 
-  const valid = keypair.verify(digest, sigBytes)
+  let valid = false
+  try {
+    valid = keypair.verify(digest, sigBytes)
+  } catch {
+    throw new RouteDockSignatureError(
+      `Manifest signature verification failed for payee ${manifest.payee}`,
+    )
+  }
+
   if (!valid) {
     throw new RouteDockSignatureError(
       `Manifest signature verification failed for payee ${manifest.payee}`,
