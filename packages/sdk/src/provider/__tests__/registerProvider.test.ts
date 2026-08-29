@@ -25,7 +25,7 @@ describe('registerProvider', () => {
       x402: { amount: '0.001', per: 'request' },
       'mpp-charge': { amount: '0.0008', per: 'request' },
     },
-    endpoints: { price: 'GET /price' },
+    endpoints: { price: { method: 'GET', path: '/price' } },
     tags: ['price', 'dex', 'stellar'],
     categories: ['data/price'],
   }
