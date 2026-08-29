@@ -12,7 +12,7 @@ VALUES
   (
     'Stellar DEX Price Feed',
     'Real-time USDC/XLM mid-price from Stellar DEX orderbook via Horizon',
-    'https://provider-a.railway.app',
+    'https://api-a.routedock.xyz',
     ARRAY['x402', 'mpp-charge'],
     ARRAY['price', 'stellar', 'dex', 'orderbook', 'usdc'],
     ARRAY['data/price/crypto'],
@@ -40,8 +40,8 @@ VALUES
   (
     'Stellar DEX Orderbook Stream',
     'Real-time USDC/XLM orderbook SSE stream from Stellar Horizon',
-    'https://provider-b.railway.app',
-    ARRAY['mpp-session'],
+    'https://api-b.routedock.xyz',
+    ARRAY['mpp-session', 'mpp-session-ws'],
     ARRAY['stream', 'stellar', 'dex', 'orderbook', 'usdc', 'sse', 'realtime'],
     ARRAY['data/stream/crypto'],
     'testnet',
@@ -50,13 +50,20 @@ VALUES
       "routedock": "1.0",
       "name": "Stellar DEX Orderbook Stream",
       "description": "Real-time USDC/XLM orderbook SSE stream from Stellar Horizon",
-      "modes": ["mpp-session"],
+      "modes": ["mpp-session", "mpp-session-ws"],
       "network": "testnet",
       "asset": "USDC",
       "asset_contract": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "payee": "GDEMO2PAYEEADDRESS11111111111111111111111111111111111111",
       "pricing": {
         "mpp-session": {
+          "rate": "0.0001",
+          "per": "voucher",
+          "channel_contract": "CDEMO1CHANNELCONTRACT1111111111111111111111111111111111",
+          "min_deposit": "0.10",
+          "refund_waiting_period_ledgers": 17280
+        },
+        "mpp-session-ws": {
           "rate": "0.0001",
           "per": "voucher",
           "channel_contract": "CDEMO1CHANNELCONTRACT1111111111111111111111111111111111",
@@ -69,7 +76,18 @@ VALUES
       "categories": ["data/stream/crypto"]
     }'::jsonb,
     true
-  );
+  )
+ON CONFLICT (base_url) DO UPDATE
+SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  modes = EXCLUDED.modes,
+  tags = EXCLUDED.tags,
+  categories = EXCLUDED.categories,
+  network = EXCLUDED.network,
+  payee = EXCLUDED.payee,
+  manifest = EXCLUDED.manifest,
+  verified = EXCLUDED.verified;
 
 
 -- ─── Sample Sessions ──────────────────────────────────────────
