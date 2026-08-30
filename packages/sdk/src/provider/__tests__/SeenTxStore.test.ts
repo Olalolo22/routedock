@@ -40,28 +40,64 @@ describe('InMemorySeenTxStore', () => {
     assert.deepEqual(store.get('b'), { txHash: 'b' })
   })
 
-  it('emits a warning when warn option is not false', () => {
+  it('emits a warning on Cloudflare Workers when warn is not false', () => {
     const warnings: string[] = []
-    const orig = console.warn
+    const origWarn = console.warn
     console.warn = (msg: string) => warnings.push(msg)
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { userAgent: 'Cloudflare-Workers' },
+      configurable: true,
+    })
     try {
       new InMemorySeenTxStore()
       assert.ok(warnings.length > 0)
       assert.ok(warnings[0]!.includes('SeenTxStore'))
     } finally {
-      console.warn = orig
+      console.warn = origWarn
+      Object.defineProperty(globalThis, 'navigator', {
+        value: undefined,
+        configurable: true,
+      })
+    }
+  })
+
+  it('does not warn on Node (no navigator or non-Workers userAgent)', () => {
+    const warnings: string[] = []
+    const origWarn = console.warn
+    console.warn = (msg: string) => warnings.push(msg)
+    Object.defineProperty(globalThis, 'navigator', {
+      value: undefined,
+      configurable: true,
+    })
+    try {
+      new InMemorySeenTxStore()
+      assert.equal(warnings.length, 0)
+    } finally {
+      console.warn = origWarn
+      Object.defineProperty(globalThis, 'navigator', {
+        value: undefined,
+        configurable: true,
+      })
     }
   })
 
   it('suppresses warning when warn: false', () => {
     const warnings: string[] = []
-    const orig = console.warn
+    const origWarn = console.warn
     console.warn = (msg: string) => warnings.push(msg)
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { userAgent: 'Cloudflare-Workers' },
+      configurable: true,
+    })
     try {
       new InMemorySeenTxStore({ warn: false })
       assert.equal(warnings.length, 0)
     } finally {
-      console.warn = orig
+      console.warn = origWarn
+      Object.defineProperty(globalThis, 'navigator', {
+        value: undefined,
+        configurable: true,
+      })
     }
   })
 })

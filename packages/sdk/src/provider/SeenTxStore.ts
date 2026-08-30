@@ -57,11 +57,16 @@ export class InMemorySeenTxStore implements SeenTxStore {
     this.maxEntries = options.maxEntries ?? 10_000
 
     if (options.warn !== false) {
-      console.warn(
-        '[RouteDock] Using in-memory SeenTxStore: settlement deduplication is NOT durable ' +
-          'and resets on every isolate restart. Supply a SupabaseSeenTxStore (or other ' +
-          'durable SeenTxStore) for production safety.',
-      )
+      const isServerless =
+        typeof globalThis.navigator !== 'undefined' &&
+        globalThis.navigator.userAgent === 'Cloudflare-Workers'
+      if (isServerless) {
+        console.warn(
+          '[RouteDock] Using in-memory SeenTxStore: settlement deduplication is NOT durable ' +
+            'and resets on every isolate restart. Supply a SupabaseSeenTxStore (or other ' +
+            'durable SeenTxStore) for production safety.',
+        )
+      }
     }
   }
 
