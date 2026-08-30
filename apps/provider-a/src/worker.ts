@@ -1,6 +1,13 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { routedockHono, registerProvider, signManifest } from '@routedock/routedock/provider/hono'
+import {
+  routedockHono,
+  registerProvider,
+  signManifest,
+  SupabaseSeenTxStore,
+  InMemorySeenTxStore,
+  type SeenTxStore,
+} from '@routedock/routedock/provider/hono'
 import {
   buildManifest,
   HORIZON_URLS,
@@ -10,11 +17,6 @@ import {
   X402_PRICE,
   type Network,
 } from './manifest.js'
-import {
-  InMemorySeenTxStore,
-  SupabaseSeenTxStore,
-  type SeenTxStore,
-} from './SupabaseSeenTxStore.js'
 
 export interface Env {
   STELLAR_NETWORK?: string
