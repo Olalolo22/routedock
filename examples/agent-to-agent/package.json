@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --experimental-strip-types --env-file-if-exists=.env index.ts"
+    "start": "node --experimental-strip-types --env-file-if-exists=.env index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@routedock/sdk": "npm:@routedock/routedock@*",
+    "@routedock/sdk": "workspace:@routedock/routedock@*",
     "@hono/node-server": "^1.13.0",
     "@stellar/stellar-sdk": "^14.6.1",
     "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
   },
   "engines": {
     "node": ">=22.6.0"
