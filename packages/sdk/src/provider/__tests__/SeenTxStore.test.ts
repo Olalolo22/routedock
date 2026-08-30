@@ -7,12 +7,12 @@ import {
 
 describe('InMemorySeenTxStore', () => {
   it('returns undefined for unseen keys', () => {
-    const store = new InMemorySeenTxStore()
+    const store = new InMemorySeenTxStore({ warn: false })
     assert.equal(store.get('nope'), undefined)
   })
 
   it('stores and returns a settlement record', () => {
-    const store = new InMemorySeenTxStore()
+    const store = new InMemorySeenTxStore({ warn: false })
     store.set('k1', { txHash: 'tx_abc', headers: { 'X-Payment-Response': 'r' } })
     assert.deepEqual(store.get('k1'), {
       txHash: 'tx_abc',
@@ -21,7 +21,7 @@ describe('InMemorySeenTxStore', () => {
   })
 
   it('evicts the oldest entry past maxEntries (FIFO)', () => {
-    const store = new InMemorySeenTxStore(2)
+    const store = new InMemorySeenTxStore({ maxEntries: 2, warn: false })
     store.set('a', { txHash: 'a' })
     store.set('b', { txHash: 'b' })
     store.set('c', { txHash: 'c' }) // evicts 'a'
@@ -31,13 +31,38 @@ describe('InMemorySeenTxStore', () => {
   })
 
   it('overwriting a key does not grow the eviction queue', () => {
-    const store = new InMemorySeenTxStore(2)
+    const store = new InMemorySeenTxStore({ maxEntries: 2, warn: false })
     store.set('a', { txHash: 'a1' })
     store.set('a', { txHash: 'a2' })
     store.set('b', { txHash: 'b' })
     // 'a' was overwritten, not re-queued, so it must survive.
     assert.deepEqual(store.get('a'), { txHash: 'a2' })
     assert.deepEqual(store.get('b'), { txHash: 'b' })
+  })
+
+  it('emits a warning when warn option is not false', () => {
+    const warnings: string[] = []
+    const orig = console.warn
+    console.warn = (msg: string) => warnings.push(msg)
+    try {
+      new InMemorySeenTxStore()
+      assert.ok(warnings.length > 0)
+      assert.ok(warnings[0]!.includes('SeenTxStore'))
+    } finally {
+      console.warn = orig
+    }
+  })
+
+  it('suppresses warning when warn: false', () => {
+    const warnings: string[] = []
+    const orig = console.warn
+    console.warn = (msg: string) => warnings.push(msg)
+    try {
+      new InMemorySeenTxStore({ warn: false })
+      assert.equal(warnings.length, 0)
+    } finally {
+      console.warn = orig
+    }
   })
 })
 

@@ -786,4 +786,5 @@ export function routedockHono(opts: RouteDockHonoOptions): MiddlewareHandler {
 
 export { registerProvider, type RegisterProviderOptions } from './registerProvider.js'
 export { signManifest } from '../manifest/sign.js'
+export { SupabaseSeenTxStore } from '../store/SupabaseSeenTxStore.js'
 
