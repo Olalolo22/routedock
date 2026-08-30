@@ -5,7 +5,7 @@
  * three payment modes (x402, MPP charge, MPP session) against live provider
  * services on Stellar testnet.
  *
- * Run with: pnpm --filter @routedock/agent test:e2e
+ * Run with: pnpm --filter agent test:e2e
  *
  * Prerequisites:
  *   - Stellar testnet access via Horizon API

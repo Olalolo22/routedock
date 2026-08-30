@@ -62,23 +62,25 @@ stellar contract deploy \
 
 Generate free at https://channels.openzeppelin.com/gen (Stellar testnet).
 
-Store as `OPENZEPPELIN_API_KEY` in provider `.env` files.
+Store as `OPENZEPPELIN_API_KEY` in `apps/provider-a/.dev.vars` (for local dev) or provision via `wrangler secret put OPENZEPPELIN_API_KEY` (for deployed Cloudflare Workers).
 
 ---
 
 ## Environment Files
 
-Fill all `.env` files from their `.env.example` templates:
+Providers (`provider-a` and `provider-b`) run as Cloudflare Workers. For local testing, populate their `.dev.vars` files. For the agent runner (Node), populate `agent/.env`:
 
 ```bash
-cp apps/provider-a/.env.example apps/provider-a/.env
-cp apps/provider-b/.env.example apps/provider-b/.env
+cp apps/provider-a/.dev.vars.example apps/provider-a/.dev.vars 2>/dev/null || cp apps/provider-a/.env.example apps/provider-a/.dev.vars
+cp apps/provider-b/.dev.vars.example apps/provider-b/.dev.vars 2>/dev/null || cp apps/provider-b/.env.example apps/provider-b/.dev.vars
 cp agent/.env.example agent/.env
 ```
 
+> ⚠️ **SECURITY WARNING:** `wrangler.jsonc` is committed to git. Never put secret seeds (`S...`) into `vars`. Use `.dev.vars` locally (gitignored) and `wrangler secret put <KEY>` for deployed Workers.
+
 Required values in each:
-- `apps/provider-a/.env`: `STELLAR_PAYEE_SECRET`, `STELLAR_PAYEE_ADDRESS`, `OPENZEPPELIN_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
-- `apps/provider-b/.env`: Same + `CHANNEL_CONTRACT_ID`
+- `apps/provider-a/.dev.vars`: `STELLAR_PAYEE_SECRET`, `STELLAR_PAYEE_ADDRESS`, `OPENZEPPELIN_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
+- `apps/provider-b/.dev.vars`: Same + `CHANNEL_CONTRACT_ID`, `COMMITMENT_PUBLIC_KEY`
 - `agent/.env`: `AGENT_SECRET`, `AGENT_VAULT_CONTRACT_ID`, `PROVIDER_A_URL`, `PROVIDER_B_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`
 
 ---
@@ -86,10 +88,10 @@ Required values in each:
 ## Build Everything
 
 ```bash
-pnpm --filter @routedock/sdk build
-pnpm --filter @routedock/provider-a build
-pnpm --filter @routedock/provider-b build
-pnpm --filter @routedock/agent build
+pnpm --filter @routedock/routedock build
+pnpm --filter provider-a build
+pnpm --filter provider-b build
+pnpm --filter agent build
 ```
 
 ---
@@ -98,28 +100,26 @@ pnpm --filter @routedock/agent build
 
 **Terminal 1 — Provider A:**
 ```bash
-pnpm --filter @routedock/provider-a start
+pnpm --filter provider-a start
 # Verify: curl http://localhost:3001/health
 # Verify: curl http://localhost:3001/.well-known/routedock.json
 ```
 
 **Terminal 2 — Provider B:**
 ```bash
-pnpm --filter @routedock/provider-b start
+pnpm --filter provider-b start
 # Verify: curl http://localhost:3002/health
 # Verify: curl http://localhost:3002/.well-known/routedock.json
 ```
 
-> If using deployed Workers instead, set `PROVIDER_A_URL=https://api-a.routedock.xyz`
-> and `PROVIDER_B_URL=https://api-b.routedock.xyz` in `agent/.env` and skip running
-> providers locally.
+> If using deployed Workers instead, set `PROVIDER_A_URL=https://api-a.routedock.xyz` and `PROVIDER_B_URL=https://api-b.routedock.xyz` in `agent/.env` and skip running providers locally.
 
 ---
 
 ## Run the Agent
 
 ```bash
-pnpm --filter @routedock/agent start
+pnpm --filter agent start
 ```
 
 The agent will:

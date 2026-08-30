@@ -71,7 +71,7 @@ After agent run, paste hashes from `agent/RUN_RESULTS.md` into the "Live Testnet
 1. Deploy `stellar-experimental/one-way-channel` contract → get `CHANNEL_CONTRACT_ID`
 2. Fill all `.env` files (provider-a, provider-b, agent)
 3. Deploy provider-a and provider-b to Railway
-4. Run agent: `pnpm --filter @routedock/agent start` → produces `agent/RUN_RESULTS.md`
+4. Run agent: `pnpm --filter agent start` → produces `agent/RUN_RESULTS.md`
 5. Paste 4 tx hashes into `README.md`
 6. Deploy dashboard to Vercel (set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_STELLAR_EXPERT_URL=https://stellar.expert/explorer/testnet`, `NEXT_PUBLIC_PROVIDER_A_URL`, `NEXT_PUBLIC_PROVIDER_B_URL`)
 7. Enable Realtime on `sessions` and `tx_log` tables in Supabase dashboard
