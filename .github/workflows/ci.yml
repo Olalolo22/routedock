@@ -101,10 +101,14 @@ jobs:
         # release.yml has twice regressed to missing the permissions that make
         # Changesets and the release watchdog work (#255, fixed in 8f3d82b).
         # Fail fast if either goes missing again.
+        # Matches only real YAML keys, anchored to start-of-line indentation.
+        # A substring grep also matches the explanatory comments above the
+        # permissions block in release.yml, so it would pass even with the
+        # block deleted.
         run: |
-          for perm in "contents: write" "pull-requests: write"; do
-            if ! grep -qF "$perm" .github/workflows/release.yml; then
-              echo "::error file=.github/workflows/release.yml::missing required permission '$perm'"
+          for perm in "contents" "pull-requests"; do
+            if ! grep -qE "^[[:space:]]+${perm}:[[:space:]]*write[[:space:]]*$" .github/workflows/release.yml; then
+              echo "::error file=.github/workflows/release.yml::missing required permission '${perm}: write'"
               exit 1
             fi
           done
