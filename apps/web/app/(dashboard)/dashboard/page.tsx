@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   description: 'Live view of RouteDock payment sessions, transactions, and voucher activity on Stellar testnet.',
 }
 
+import { usdcToStroops, USDC_DECIMALS } from '@routedock/nulth-sdk'
 import { getSupabaseServerClient } from '@/lib/supabase'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { MetricCard } from '@/components/dashboard/MetricCard'
@@ -31,20 +32,36 @@ async function fetchDashboardData() {
       .limit(20),
   ])
 
+  if (sessionsRes.error) {
+    console.error('[dashboard] failed to load public_sessions:', sessionsRes.error.message)
+  }
+  if (txLogRes.error) {
+    console.error('[dashboard] failed to load tx_log:', txLogRes.error.message)
+  }
+
   const sessions = (sessionsRes.data ?? []) as Session[]
   const txLog = (txLogRes.data ?? []) as TxLogEntry[]
 
   const activeSessions = sessions.filter((s) => s.status === 'open')
   const totalVouchers = sessions.reduce((sum, s) => sum + (s.voucher_count ?? 0), 0)
-  const totalSettled = sessions
+  const totalSettledStroops = sessions
     .filter((s) => s.status === 'closed')
-    .reduce((sum, s) => sum + Number(s.cumulative_amount ?? 0), 0)
+    .reduce((sum, s) => sum + usdcToStroops(String(s.cumulative_amount ?? 0)), BigInt(0))
+  const totalSettled = Number(totalSettledStroops) / 10 ** USDC_DECIMALS
 
   const lastSettlement = sessions
     .filter((s) => s.status === 'closed' && s.settlement_tx_hash)
     .at(0)
 
-  return { sessions, txLog, activeSessions, totalVouchers, totalSettled, lastSettlement }
+  return {
+    sessions,
+    txLog,
+    activeSessions,
+    totalVouchers,
+    totalSettled,
+    lastSettlement,
+    hasError: Boolean(sessionsRes.error || txLogRes.error),
+  }
 }
 
 function timeAgo(date: string): string {
@@ -57,7 +74,7 @@ function timeAgo(date: string): string {
 }
 
 export default async function DashboardPage() {
-  const { sessions, txLog, activeSessions, totalVouchers, totalSettled, lastSettlement } =
+  const { sessions, txLog, activeSessions, totalVouchers, totalSettled, lastSettlement, hasError } =
     await fetchDashboardData()
 
   return (
@@ -65,6 +82,13 @@ export default async function DashboardPage() {
       <DashboardHeader />
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        {hasError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            Some dashboard data could not be loaded from the registry. Figures below may be
+            incomplete — check server logs for details.
+          </div>
+        )}
+
         {/* Metric cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
