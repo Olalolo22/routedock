@@ -133,6 +133,8 @@ Full demo (both providers + agent): see [`docs/AGENT_RUN_CHECKLIST.md`](docs/AGE
 
 Mainnet rollout: see [`docs/MAINNET_DEPLOYMENT.md`](docs/MAINNET_DEPLOYMENT.md).
 
+Redeploying `provider-a`/`provider-b`: read [`docs/PROVIDER_REDEPLOY_ORDERING.md`](docs/PROVIDER_REDEPLOY_ORDERING.md) first — a partial redeploy against the current npm SDK version breaks every live client.
+
 ---
 
 ## Examples
