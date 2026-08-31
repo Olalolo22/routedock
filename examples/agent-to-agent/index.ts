@@ -34,14 +34,15 @@ const SPECIALIST_PORT = 3200
 const SPECIALIST_URL = `http://localhost:${SPECIALIST_PORT}`
 
 // USDC on Stellar testnet
-let USDC_CONTRACT = process.env['USDC_ASSET_CONTRACT']
+const USDC_CONTRACT: string =
+    process.env['USDC_ASSET_CONTRACT'] ??
+    (STELLAR_NETWORK === 'testnet'
+        ? 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA'
+        : '')
+
 if (!USDC_CONTRACT) {
-    if (STELLAR_NETWORK === 'testnet') {
-        USDC_CONTRACT = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA'
-    } else {
-        console.error('FATAL: USDC_ASSET_CONTRACT is required for mainnet')
-        process.exit(1)
-    }
+    console.error('FATAL: USDC_ASSET_CONTRACT is required for mainnet')
+    process.exit(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ function buildSpecialistServer(specialistSecret: string): Hono {
     )
 
     app.post('/summarise', async (c) => {
-        const body = await c.req.json<{ text?: string }>().catch(() => ({}))
+        const body = (await c.req.json<{ text?: string }>().catch(() => ({}))) as { text?: string }
         const text = body.text ?? ''
         // Canned summarisation — swap for a real LLM call in production.
         const words = text.trim().split(/\s+/).slice(0, 6).join(' ')

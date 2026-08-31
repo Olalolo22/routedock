@@ -39,14 +39,15 @@ const MOCK_PROVIDER_KEYPAIR = Keypair.random()
 const MOCK_PROVIDER_SECRET = MOCK_PROVIDER_KEYPAIR.secret()
 
 // USDC on Stellar testnet (Circle's Soroban SAC)
-let USDC_CONTRACT = process.env['USDC_ASSET_CONTRACT']
+const USDC_CONTRACT: string =
+    process.env['USDC_ASSET_CONTRACT'] ??
+    (STELLAR_NETWORK === 'testnet'
+        ? 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA'
+        : '')
+
 if (!USDC_CONTRACT) {
-    if (STELLAR_NETWORK === 'testnet') {
-        USDC_CONTRACT = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA'
-    } else {
-        console.error('FATAL: USDC_ASSET_CONTRACT is required for mainnet')
-        process.exit(1)
-    }
+    console.error('FATAL: USDC_ASSET_CONTRACT is required for mainnet')
+    process.exit(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ function buildMockServer(): Hono {
     )
 
     app.post('/infer', async (c) => {
-        const body = await c.req.json<{ prompt?: string }>().catch(() => ({}))
+        const body = (await c.req.json<{ prompt?: string }>().catch(() => ({}))) as { prompt?: string }
         const prompt = (body.prompt ?? '').toLowerCase()
         const key = Object.keys(CANNED_RESPONSES).find((k) => k !== 'default' && prompt.includes(k))
         return c.json({ response: CANNED_RESPONSES[key ?? 'default'], model: 'mock-v1' })
