@@ -84,6 +84,7 @@ export function assertManifestValid(manifest: RouteDockManifest, baseUrl?: strin
 interface CacheEntry {
   manifest: RouteDockManifest
   fetchedAt: number
+  expiresAt: number
 }
 
 const CACHE_TTL_MS = 60_000
@@ -127,6 +128,10 @@ class LruCache<K, V> {
       this.map.delete(oldestKey)
     }
   }
+
+  delete(key: K): void {
+    this.map.delete(key)
+  }
 }
 
 /** In-memory manifest cache keyed by base URL, bounded to avoid unbounded heap growth. */
@@ -141,6 +146,46 @@ export function configureManifestCache(maxSize: number): void {
     throw new RouteDockManifestError('Invalid manifest cache size: ' + maxSize)
   }
   manifestCache.setMaxSize(maxSize)
+}
+
+/**
+ * Evict a provider's cached manifest immediately, forcing the next
+ * `fetchManifest(baseUrl)` to re-fetch and re-validate it. Use when a
+ * provider signals that their manifest changed (e.g. after a config update
+ * or a failed payment due to a mode change) so the next request does not
+ * keep routing on a stale cached copy for the remainder of the TTL.
+ *
+ * The cache is keyed by base URL as passed to `fetchManifest` — callers that
+ * pass a full URL (e.g. `RouteDockClient.invalidateManifest`) must normalize
+ * to the origin before calling this.
+ */
+export function invalidateManifest(baseUrl: string): void {
+  manifestCache.delete(baseUrl)
+}
+
+/**
+ * Per-entry freshness from response headers, per RFC 9111:
+ * `Cache-Control: max-age` wins over `Expires`, and both win over the
+ * default TTL. Missing or unparseable directives fall back to the default
+ * TTL (60s). `max-age=0` yields an immediately-stale entry, disabling
+ * caching for that response.
+ */
+function ttlFromHeaders(headers: Headers, now: number): number {
+  const cacheControl = headers.get('cache-control')
+  if (cacheControl) {
+    const maxAge = /max-age=(\d+)/i.exec(cacheControl)
+    if (maxAge) {
+      return Number.parseInt(maxAge[1]!, 10) * 1000
+    }
+  }
+  const expires = headers.get('expires')
+  if (expires) {
+    const expiresTime = Date.parse(expires)
+    if (Number.isFinite(expiresTime)) {
+      return expiresTime - now
+    }
+  }
+  return CACHE_TTL_MS
 }
 
 export type RouteDockLogger = (message: string) => void
@@ -187,7 +232,7 @@ export async function fetchManifest(
   expectedPayee?: string,
 ): Promise<RouteDockManifest> {
   const cached = manifestCache.get(baseUrl)
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+  if (cached && Date.now() < cached.expiresAt) {
     // Re-assert the trust anchor even on cache hits: the manifest content is
     // immutable, but `expectedPayee` is per-caller, so a caller with a
     // different anchor must still have the binding enforced.
@@ -202,6 +247,7 @@ export async function fetchManifest(
 
   return withRetry(async () => {
     let raw: unknown
+    let expiresAt = 0
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(manifestTimeoutMs) })
       if (!resp.ok) {
@@ -216,6 +262,8 @@ export async function fetchManifest(
           `Manifest fetch failed: HTTP ${resp.status} from ${url}`,
         )
       }
+      const now = Date.now()
+      expiresAt = now + ttlFromHeaders(resp.headers, now)
       raw = await resp.json()
     } catch (err) {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
@@ -239,7 +287,7 @@ export async function fetchManifest(
     verifyManifestSignature(manifest, expectedPayee)
     assertClientVersionSupported(manifest, baseUrl)
     assertManifestActive(manifest, baseUrl)
-    manifestCache.set(baseUrl, { manifest, fetchedAt: Date.now() })
+    manifestCache.set(baseUrl, { manifest, fetchedAt: Date.now(), expiresAt })
     return manifest
   }, retryPolicy)
 }
