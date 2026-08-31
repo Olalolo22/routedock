@@ -19,9 +19,9 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { Keypair } from '@stellar/stellar-sdk'
-import { routedockHono } from '@routedock/sdk/provider/hono'
-import { RouteDockClient } from '@routedock/sdk'
-import type { RouteDockManifest } from '@routedock/sdk'
+import { routedockHono } from '@routedock/routedock/provider/hono'
+import { RouteDockClient } from '@routedock/routedock'
+import type { RouteDockManifest } from '@routedock/routedock'
 
 // ---------------------------------------------------------------------------
 // Config

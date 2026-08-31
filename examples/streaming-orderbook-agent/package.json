@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@routedock/sdk": "workspace:@routedock/routedock@*"
+    "@routedock/routedock": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

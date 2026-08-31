@@ -209,6 +209,64 @@ importers:
         specifier: ^4.118.0
         version: 4.118.0(@cloudflare/workers-types@4.20260702.1)
 
+  examples/agent-to-agent:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.13(hono@4.12.25)
+      '@routedock/routedock':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@stellar/stellar-sdk':
+        specifier: ^14.6.1
+        version: 14.6.1
+      hono:
+        specifier: ^4.0.0
+        version: 4.12.25
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  examples/inference-agent:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.13(hono@4.12.25)
+      '@routedock/routedock':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@stellar/stellar-sdk':
+        specifier: ^14.6.1
+        version: 14.6.1
+      hono:
+        specifier: ^4.0.0
+        version: 4.12.25
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  examples/price-oracle-agent:
+    dependencies:
+      '@routedock/routedock':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  examples/streaming-orderbook-agent:
+    dependencies:
+      '@routedock/routedock':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
   packages/mcp-server:
     dependencies:
       '@modelcontextprotocol/sdk':

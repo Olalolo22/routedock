@@ -1,4 +1,4 @@
-import { RouteDockClient } from '@routedock/sdk'
+import { RouteDockClient } from '@routedock/routedock'
 
 const TARGET_UPDATES = 100
 const PROVIDER_B_URL = cleanBaseUrl(process.env['PROVIDER_B_URL'] ?? 'https://api-b.routedock.xyz')
