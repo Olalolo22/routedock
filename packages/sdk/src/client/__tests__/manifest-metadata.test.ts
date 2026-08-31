@@ -85,9 +85,9 @@ const VALID_MANIFEST_BASE: RouteDockManifest = {
   )
 
   // Invalid: latency hints defined but regions missing
+  const { regions: _omittedRegions, ...restWithoutRegions } = VALID_MANIFEST_BASE
   const noRegionsManifest: RouteDockManifest = {
-    ...VALID_MANIFEST_BASE,
-    regions: undefined,
+    ...restWithoutRegions,
     latency_hints: { IAD: 14 },
   }
 
