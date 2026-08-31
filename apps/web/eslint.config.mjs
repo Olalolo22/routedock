@@ -12,7 +12,18 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // OpenNext / Wrangler build artifacts, gitignored and regenerated on every build.
+    ".open-next/**",
+    ".wrangler/**",
   ]),
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+      }],
+    }
+  }
 ]);
 
 export default eslintConfig;
