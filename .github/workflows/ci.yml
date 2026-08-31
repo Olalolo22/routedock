@@ -48,6 +48,8 @@ jobs:
         run: pnpm --filter provider-a test
       - name: Run provider-b tests
         run: pnpm --filter provider-b test
+      - name: Run web tests
+        run: pnpm --filter web test
 
   app-build:
     runs-on: ubuntu-latest

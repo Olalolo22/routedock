@@ -7,8 +7,8 @@ export const metadata: Metadata = {
   description: 'Live view of RouteDock payment sessions, transactions, and voucher activity on Stellar testnet.',
 }
 
-import { usdcToStroops, USDC_DECIMALS } from '@routedock/nulth-sdk'
 import { getSupabaseServerClient } from '@/lib/supabase'
+import { aggregateSessions } from '@/lib/aggregateSessions'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { SessionTable } from '@/components/dashboard/SessionTable'
@@ -42,16 +42,7 @@ async function fetchDashboardData() {
   const sessions = (sessionsRes.data ?? []) as Session[]
   const txLog = (txLogRes.data ?? []) as TxLogEntry[]
 
-  const activeSessions = sessions.filter((s) => s.status === 'open')
-  const totalVouchers = sessions.reduce((sum, s) => sum + (s.voucher_count ?? 0), 0)
-  const totalSettledStroops = sessions
-    .filter((s) => s.status === 'closed')
-    .reduce((sum, s) => sum + usdcToStroops(String(s.cumulative_amount ?? 0)), BigInt(0))
-  const totalSettled = Number(totalSettledStroops) / 10 ** USDC_DECIMALS
-
-  const lastSettlement = sessions
-    .filter((s) => s.status === 'closed' && s.settlement_tx_hash)
-    .at(0)
+  const { activeSessions, totalVouchers, totalSettled, lastSettlement } = aggregateSessions(sessions)
 
   return {
     sessions,
