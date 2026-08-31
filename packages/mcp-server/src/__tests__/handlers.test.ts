@@ -15,6 +15,42 @@ import {
   type ProviderRow,
   type SupabaseQueryBuilder,
 } from '../handlers.js'
+import { TOOLS } from '../tools.js'
+
+// ---------------------------------------------------------------------------
+// Tool schema regression guard (issue #272)
+// Pins the pay_for_data preferred_mode enum against the SDK's PaymentMode so
+// future mode additions cause this test to fail rather than drift silently.
+// ---------------------------------------------------------------------------
+
+/** The canonical set of modes exported by the SDK. Kept as a const so any
+ *  addition to PaymentMode surfaces here as a type error before the test runs. */
+const SDK_PAYMENT_MODES = ['x402', 'mpp-charge', 'mpp-session', 'mpp-session-ws'] as const
+type _AssertPaymentModes = (typeof SDK_PAYMENT_MODES)[number] extends import('@routedock/routedock').PaymentMode
+  ? import('@routedock/routedock').PaymentMode extends (typeof SDK_PAYMENT_MODES)[number]
+    ? true
+    : never
+  : never
+
+describe('TOOLS schema regression', () => {
+  it('pay_for_data preferred_mode enum matches SDK PaymentMode exactly', () => {
+    const tool = TOOLS.find((t) => t.name === 'pay_for_data')
+    assert.ok(tool, 'pay_for_data tool must exist in TOOLS')
+
+    const enumValues = (tool.inputSchema as unknown as {
+      properties: { preferred_mode: { enum: string[] } }
+    }).properties.preferred_mode.enum
+
+    const expected = [...SDK_PAYMENT_MODES].sort()
+    const actual = [...enumValues].sort()
+
+    assert.deepEqual(
+      actual,
+      expected,
+      `Tool enum ${JSON.stringify(actual)} must match SDK PaymentMode ${JSON.stringify(expected)}`,
+    )
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -219,6 +255,23 @@ describe('handleOpenSession', () => {
     )
     assert.equal(result.isError, undefined)
     assert.ok(sessions.has('CHAN1'))
+  })
+
+  it('reads min_deposit from mpp-session-ws when mpp-session is absent', async () => {
+    const fakeManifest = {
+      pricing: { 'mpp-session-ws': { min_deposit: '10.0' } },
+    }
+    const fetchManifest = async (_url: string) => ({
+      json: async () => fakeManifest,
+    })
+    const result = await handleOpenSession(
+      { url: 'https://provider.example.com', initial_deposit: '1.0' },
+      baseDeps({ fetchManifest }),
+      'secret123',
+    )
+    assert.equal(result.isError, true)
+    const body = parseResult(result) as any
+    assert.ok(body.error.includes('min_deposit'))
   })
 })
 

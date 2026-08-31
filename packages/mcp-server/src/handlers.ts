@@ -105,7 +105,7 @@ function err(message: string): ToolResult {
 export interface PayForDataArgs {
   url: string
   max_amount: string
-  preferred_mode?: 'x402' | 'mpp-charge' | 'mpp-session'
+  preferred_mode?: PaymentMode
 }
 
 /**
@@ -184,7 +184,9 @@ export async function handleOpenSession(
       pricing?: Record<string, { min_deposit?: string }>
     }
 
-    const minDeposit = manifest?.pricing?.['mpp-session']?.min_deposit
+    const minDeposit =
+      manifest?.pricing?.['mpp-session']?.min_deposit ??
+      manifest?.pricing?.['mpp-session-ws']?.min_deposit
     if (minDeposit && parseFloat(initial_deposit) < parseFloat(minDeposit)) {
       return err(
         `initial_deposit ${initial_deposit} is below this provider's min_deposit ${minDeposit}. ` +
