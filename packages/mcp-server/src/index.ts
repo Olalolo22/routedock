@@ -1,5 +1,4 @@
 import { config as loadDotenv } from 'dotenv'
-import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -9,8 +8,8 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import { RouteDockClient } from '@routedock/routedock'
-import type { SessionHandle, DailySpend, SpendStore } from '@routedock/routedock'
+import { RouteDockClient, FileSpendStore } from '@routedock/routedock'
+import type { SessionHandle } from '@routedock/routedock'
 import { createClient } from '@supabase/supabase-js'
 import {
   handlePayForData,
@@ -56,26 +55,6 @@ const ROUTEDOCK_DAILY_CAP = process.env.ROUTEDOCK_DAILY_CAP
 if (!ROUTEDOCK_DAILY_CAP) {
   console.error('Error: ROUTEDOCK_DAILY_CAP environment variable is required to prevent unbounded spending')
   process.exit(1)
-}
-
-// Simple durable spend store for MCP server
-class FileSpendStore implements SpendStore {
-  private filePath: string
-  constructor(filePath: string) {
-    this.filePath = filePath
-  }
-  async read(): Promise<DailySpend | null> {
-    try {
-      const data = await fs.readFile(this.filePath, 'utf-8')
-      return JSON.parse(data) as DailySpend
-    } catch {
-      return null
-    }
-  }
-  async write(state: DailySpend): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true })
-    await fs.writeFile(this.filePath, JSON.stringify(state, null, 2), 'utf-8')
-  }
 }
 
 const spendStorePath = process.env.ROUTEDOCK_SPEND_STORE_PATH || path.join(os.homedir(), '.routedock', 'spend.json')

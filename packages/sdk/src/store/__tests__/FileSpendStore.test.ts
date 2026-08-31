@@ -82,19 +82,54 @@ describe('FileSpendStore', () => {
     assert.equal(typeof store.write, 'function')
   })
 
-  it('returns null for corrupted JSON file', async () => {
+  it('throws on corrupted JSON file instead of silently returning null', async () => {
     const filePath = path.join(tmpDir, 'corrupt.json')
     await fs.writeFile(filePath, '{ not valid json', 'utf-8')
     const store = new FileSpendStore(filePath)
-    // JSON.parse will throw on corrupted data, which is caught → null
-    assert.equal(await store.read(), null)
+    // A corrupt file means the cap state is unknown — must throw, not return null,
+    // so the caller fails closed rather than assuming zero spend.
+    await assert.rejects(
+      () => store.read(),
+      (err: Error) => {
+        assert.ok(err.message.includes('invalid JSON'), `Expected 'invalid JSON' in: ${err.message}`)
+        return true
+      },
+    )
   })
 
-  it('returns null for a directory instead of a file', async () => {
+  it('throws on a directory instead of a file (EISDIR)', async () => {
     const dirPath = path.join(tmpDir, 'is-dir')
     await fs.mkdir(dirPath, { recursive: true })
     const store = new FileSpendStore(dirPath)
-    // readFile on a directory throws EISDIR, caught → null
-    assert.equal(await store.read(), null)
+    // EISDIR is not ENOENT — the file path exists but is unreadable as a file.
+    await assert.rejects(
+      () => store.read(),
+      (err: Error) => {
+        assert.ok(err.message.includes('Failed to read'), `Expected 'Failed to read' in: ${err.message}`)
+        return true
+      },
+    )
+  })
+
+  it('leaves no window where the file is absent or partial (atomic write)', async () => {
+    const filePath = path.join(tmpDir, 'atomic.json')
+    const store = new FileSpendStore(filePath)
+    const state: DailySpend = {
+      date: '2026-06-26',
+      totalMicros: '1000000',
+      endpoints: { 'https://api.example.com': '500000' },
+    }
+    await store.write(state)
+
+    // The .tmp file must not exist after a successful write — it was renamed.
+    await assert.rejects(
+      () => fs.access(`${filePath}.tmp`),
+      { code: 'ENOENT' },
+      '.tmp file must not remain after write',
+    )
+
+    // The target file must contain valid JSON matching the written state.
+    const read = await store.read()
+    assert.deepEqual(read, state)
   })
 })
