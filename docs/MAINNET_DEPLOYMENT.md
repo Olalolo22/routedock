@@ -15,12 +15,14 @@ Do **not** deploy until every item below is explicitly marked done by the operat
     ```bash
     git rev-parse HEAD
     ```
-- [ ] **Key custody plan approved**
+- [ ] **Key custody & Cloudflare Workers secret management approved**
   - Signing keys live in HSM or Ledger-backed flow.
-  - No raw seeds stored in `.env`, shell history, CI logs, or chat.
-  - Command (sanity check for accidental secrets in env files):
+  - No raw seeds stored in `.env`, `.dev.vars`, shell history, CI logs, or chat.
+  - **`wrangler.jsonc` is committed to git**: Never place secret seeds (`S...`) or API keys in the `vars` block of `wrangler.jsonc`.
+  - All production secrets for Cloudflare Workers must be injected exclusively via `wrangler secret put`. Local development secrets must only exist in uncommitted `.dev.vars` files.
+  - Command (sanity check for accidental secrets in env/config files):
     ```bash
-    rg -n "(SECRET=|SEED|S[ABCDEFGHIJKLMNOPQRSTUVWXYZ234567]{55})" apps agent docs --glob "*.env*"
+    rg -n "(SECRET=|SEED|S[ABCDEFGHIJKLMNOPQRSTUVWXYZ234567]{55})" apps agent docs --glob "*.env*" --glob "*.dev.vars*" --glob "*.jsonc"
     ```
 - [ ] **Monitoring and alerting live**
   - Stellar Expert webhook configured for vault + channel contracts.
@@ -64,11 +66,11 @@ echo "$STELLAR_PAYEE_ADDRESS"
 stellar keys address ledger-mainnet --hd-path "44'/148'/0'" --network mainnet
 ```
 
-> Never place `S...` secret seeds in `.env` files. For local testing, use isolated ephemeral accounts only.
+> ⚠️ **CRITICAL SECURITY NOTE:** Never place `S...` secret seeds in `.env` files or `wrangler.jsonc` `vars` (since `wrangler.jsonc` is committed to version control). Deployed Cloudflare Workers must receive secrets via `wrangler secret put`. For local development only, use uncommitted `.dev.vars`. For testing, use isolated ephemeral accounts only.
 
 ---
 
-## 3) USDC trustline (mainnet)
+## 3) USDC trustline & asset contract (mainnet)
 
 RouteDock mainnet flow expects USDC trustline to Circle's official Stellar issuer. If the payer account lacks a trustline, `client.pay()` now throws `RouteDockTrustlineError` preflight — before any transaction is submitted — with the exact remediation command.
 
@@ -101,6 +103,12 @@ Starting in SDK v0.1.3+, each `client.pay()` call runs a trustline preflight che
 The check is non-blocking in degraded scenarios: if Horizon is unreachable, the SDK logs a warning and continues without blocking the payment.
 
 Call `client.preflight(manifest)` explicitly to validate a manifest's asset trustline without executing a payment.
+
+### Mandatory `USDC_ASSET_CONTRACT` on Mainnet
+
+> ⚠️ **MANDATORY CONFIGURATION:** `USDC_ASSET_CONTRACT` is **required** on mainnet for both providers and the agent. In `@routedock/routedock`, `resolveAssetContract` throws an error if `USDC_ASSET_CONTRACT` is missing on mainnet because only testnet has a default fallback contract address.
+
+Obtain or deploy the Stellar Asset Contract (SAC) wrapper ID for mainnet USDC and record it as `USDC_ASSET_CONTRACT`.
 
 ---
 
@@ -174,44 +182,105 @@ curl -i https://channels.openzeppelin.com/x402 \
 Rotation guidance:
 
 1. Create new token.
-2. Deploy with both old/new valid in staged rollout.
+2. Store securely via `wrangler secret put OPENZEPPELIN_API_KEY`.
 3. Revoke old token after 100% cutover.
 4. Document rotation timestamp and owner.
 
 ---
 
-## 7) Switch `STELLAR_NETWORK=mainnet` in providers and agent
+## 7) Cloudflare Workers & Agent Configuration (Mainnet Rollout)
 
-Update runtime env for all services.
+Both `provider-a` and `provider-b` run as **Cloudflare Workers**. 
 
-`apps/provider-a/.env`:
+> ⚠️ **CUTOVER ORDERING CONSTRAINT (#265):**
+> Do not redeploy providers to mainnet individually before the SDK package publishes to npm. Follow the strict ordering from tracking issue **#265**:
+> 1. Publish `@routedock/routedock@0.2.0` to npm (which includes `signature_version: '2'`).
+> 2. Configure production secrets via `wrangler secret put` on both Workers.
+> 3. Redeploy **both** providers simultaneously (`pnpm --filter provider-a deploy` & `pnpm --filter provider-b deploy`).
+> 4. Verify both serve `signature_version: '2'` and are reachable before sending agent traffic.
 
-```bash
-STELLAR_NETWORK=mainnet
-OPENZEPPELIN_API_KEY=<oz-token>
-USDC_ASSET_CONTRACT=<mainnet-usdc-sac-contract>
+### Provider A (`apps/provider-a`) — Cloudflare Worker
+
+Public variables in `apps/provider-a/wrangler.jsonc` (committed):
+```jsonc
+{
+  "name": "routedock-provider-a",
+  "vars": {
+    "STELLAR_NETWORK": "mainnet",
+    "USDC_ASSET_CONTRACT": "<MAINNET_USDC_SAC_CONTRACT_ID>",
+    "SUPABASE_URL": "https://<your-project>.supabase.co"
+  }
+}
 ```
 
-`apps/provider-b/.env`:
-
+Upload sensitive secrets using `wrangler secret put`:
 ```bash
-STELLAR_NETWORK=mainnet
-CHANNEL_CONTRACT_ID=<mainnet-channel-contract>
-USDC_ASSET_CONTRACT=<mainnet-usdc-sac-contract>
+cd apps/provider-a
+wrangler secret put STELLAR_PAYEE_SECRET
+wrangler secret put STELLAR_PAYEE_ADDRESS
+wrangler secret put OPENZEPPELIN_API_KEY
+wrangler secret put SUPABASE_SERVICE_KEY
+wrangler secret put USDC_ASSET_CONTRACT
 ```
+
+Deploy Provider A:
+```bash
+wrangler deploy
+```
+
+### Provider B (`apps/provider-b`) — Cloudflare Worker
+
+Public variables in `apps/provider-b/wrangler.jsonc` (committed):
+```jsonc
+{
+  "name": "routedock-provider-b",
+  "vars": {
+    "STELLAR_NETWORK": "mainnet",
+    "USDC_ASSET_CONTRACT": "<MAINNET_USDC_SAC_CONTRACT_ID>",
+    "SUPABASE_URL": "https://<your-project>.supabase.co"
+  }
+}
+```
+
+Upload sensitive secrets using `wrangler secret put`:
+```bash
+cd apps/provider-b
+wrangler secret put STELLAR_PAYEE_SECRET
+wrangler secret put STELLAR_PAYEE_ADDRESS
+wrangler secret put CHANNEL_CONTRACT_ID
+wrangler secret put COMMITMENT_PUBLIC_KEY
+wrangler secret put SUPABASE_SERVICE_KEY
+wrangler secret put USDC_ASSET_CONTRACT
+```
+
+Deploy Provider B:
+```bash
+wrangler deploy
+```
+
+### Agent Service (`agent`) — Node Runtime
+
+The agent runner runs as a standalone Node service configured via `agent/.env`:
 
 `agent/.env`:
-
 ```bash
 STELLAR_NETWORK=mainnet
-AGENT_VAULT_CONTRACT_ID=<mainnet-agent-vault>
+AGENT_SECRET=<S...>
+AGENT_VAULT_CONTRACT_ID=<MAINNET_AGENT_VAULT_CONTRACT_ID>
+USDC_ASSET_CONTRACT=<MAINNET_USDC_SAC_CONTRACT_ID>
+PROVIDER_A_URL=https://api-a.routedock.xyz
+PROVIDER_B_URL=https://api-b.routedock.xyz
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
-Smoke-check manifests and health endpoints:
+### Smoke-check Manifests and Health Endpoints
 
 ```bash
-curl -s http://localhost:3001/.well-known/routedock.json | jq '.network,.pricing.x402.facilitator'
-curl -s http://localhost:3002/.well-known/routedock.json | jq '.network,.pricing["mpp-session"].contract'
+curl -s https://api-a.routedock.xyz/.well-known/routedock.json | jq '.network,.pricing.x402.facilitator'
+curl -s https://api-b.routedock.xyz/.well-known/routedock.json | jq '.network,.pricing["mpp-session"].channel_contract'
+curl -s https://api-a.routedock.xyz/health
+curl -s https://api-b.routedock.xyz/health
 ```
 
 ---
@@ -266,13 +335,13 @@ Alert threshold example:
 ### Key rotation procedure
 
 1. Generate new hardware-backed key.
-2. Add new key to allowlists/config.
-3. Shift traffic to new key.
+2. Update key secrets in Cloudflare Workers (`wrangler secret put STELLAR_PAYEE_SECRET` / `STELLAR_PAYEE_ADDRESS`).
+3. Shift traffic to new key and redeploy.
 4. Revoke old key and archive incident record.
 
 ### Emergency pause via session key expiry
 
-Set minimal session expiry and redeploy agent env:
+Set minimal session expiry in `agent/.env`:
 
 ```bash
 SESSION_EXPIRY_LEDGERS=5
@@ -281,7 +350,7 @@ SESSION_EXPIRY_LEDGERS=5
 Then restart agent service:
 
 ```bash
-pnpm --filter @routedock/agent start
+pnpm --filter agent start
 ```
 
 This keeps custody with primary vault controls while rapidly reducing session key blast radius.

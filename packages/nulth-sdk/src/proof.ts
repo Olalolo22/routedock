@@ -70,8 +70,4 @@ export function decodeAuthSignature(encoded: string): import('./types.js').Nulth
 }
 
 /** Convert decimal USDC string to stroops (7 decimals) */
-export function usdcToStroops(amount: string): bigint {
-  const [whole = '0', frac = ''] = amount.split('.')
-  const padded = (frac + '0000000').slice(0, 7)
-  return BigInt(whole) * 1_000_0000n + BigInt(padded)
-}
+export { usdcToStroops } from './usdc.js'

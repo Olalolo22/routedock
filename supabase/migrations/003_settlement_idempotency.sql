@@ -23,4 +23,5 @@ CREATE TABLE settlements (
 ALTER TABLE settlements ENABLE ROW LEVEL SECURITY;
 
 -- Retention: idempotency only needs to outlive an agent's retry window.
+-- Implemented in migration 004_settlement_retention.sql (7-day cleanup via pg_cron).
 CREATE INDEX idx_settlements_created_at ON settlements (created_at);

@@ -1,6 +1,13 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { routedockHono } from '@routedock/routedock/provider/hono'
+import {
+  routedockHono,
+  registerProvider,
+  signManifest,
+  SupabaseSeenTxStore,
+  InMemorySeenTxStore,
+  type SeenTxStore,
+} from '@routedock/routedock/provider/hono'
 import {
   buildManifest,
   HORIZON_URLS,
@@ -10,11 +17,6 @@ import {
   X402_PRICE,
   type Network,
 } from './manifest.js'
-import {
-  InMemorySeenTxStore,
-  SupabaseSeenTxStore,
-  type SeenTxStore,
-} from './SupabaseSeenTxStore.js'
 
 export interface Env {
   STELLAR_NETWORK?: string
@@ -96,6 +98,14 @@ function createApp(env: Env): Hono {
   const seenTxStore: SeenTxStore = supabase
     ? new SupabaseSeenTxStore(supabase)
     : new InMemorySeenTxStore()
+
+  if (supabase) {
+    const baseUrl = env.PUBLIC_BASE_URL ?? 'https://api-a.routedock.xyz'
+    const signed = signManifest(manifest, env.STELLAR_PAYEE_SECRET)
+    void registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
+      console.error('[registry] Failed to register provider-a:', err)
+    })
+  }
 
   const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-a.routedock.xyz'}/price`
 

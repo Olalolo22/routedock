@@ -5,9 +5,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   routedockHono,
   mppSessionWsVerified,
+  registerProvider,
+  signManifest,
 } from '@routedock/routedock/provider/hono'
 import { Store } from '@stellar/mpp/channel/server'
-import { usdcToUnits } from '@routedock/routedock'
 import {
   buildManifest,
   HORIZON_URLS,
@@ -96,6 +97,14 @@ export class ChannelSession extends DurableObject<Env> {
         ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY)
         : null
 
+    if (supabase && env.STELLAR_PAYEE_SECRET) {
+      const baseUrl = env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'
+      const signed = signManifest(manifest, env.STELLAR_PAYEE_SECRET)
+      void registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
+        console.error('[registry] Failed to register provider-b:', err)
+      })
+    }
+
     const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'}/stream/orderbook`
 
     const sessionStore = this.ctx?.storage
@@ -143,7 +152,7 @@ export class ChannelSession extends DurableObject<Env> {
           const { error } = await supabase
             .from('sessions')
             .update({
-              cumulative_amount: usdcToUnits(cumulativeAmount).toString(),
+              cumulative_amount: cumulativeAmount,
               voucher_count: voucherIndex,
               last_signature: signature,
             })
@@ -156,7 +165,7 @@ export class ChannelSession extends DurableObject<Env> {
             .from('sessions')
             .update({
               status: 'closing',
-              cumulative_amount: usdcToUnits(info.cumulativeAmount).toString(),
+              cumulative_amount: info.cumulativeAmount,
               last_signature: info.lastSignature || null,
               voucher_count: info.voucherCount,
             })

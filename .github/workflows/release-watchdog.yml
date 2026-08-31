@@ -1,11 +1,48 @@
 name: Release Watchdog
-no:
+
+# Complements the `if: failure()` step inside release.yml. That step only fires
+# when a release run actually executes and fails; this catches the other case —
+# release.yml not running at all, or the last run having failed and been
+# forgotten. Release runs on push to main, so its result never appears in a
+# PR's check set and nothing else surfaces it.
+on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  issues: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - run: test "$(gh api repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?per_page=1 | jq -r '.workflow_runs[0].conclusion')" = success
+      - name: Fail if the most recent Release run did not succeed
         env:
-          GH_TOKEN: ${ {secrets.GITHUB_TOKEN}}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?per_page=1&status=completed")
+          conclusion=$(echo "$run" | jq -r '.workflow_runs[0].conclusion // "none"')
+          url=$(echo "$run" | jq -r '.workflow_runs[0].html_url // ""')
+          sha=$(echo "$run" | jq -r '.workflow_runs[0].head_sha // ""')
+
+          echo "last completed Release run: $conclusion ${sha:0:8}"
+          if [ "$conclusion" = "success" ]; then
+            exit 0
+          fi
+
+          echo "::error::Release is $conclusion — nothing is publishing to npm. $url"
+
+          existing=$(gh issue list --state open --label release \
+            --search "Release workflow is failing in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still \`$conclusion\` as of the daily watchdog — $url"
+          else
+            body=$(printf '%s\n\n%s\n\n%s\n' \
+              "The most recent completed Release run is \`$conclusion\` on \`${sha:0:8}\`." \
+              "$url" \
+              "Nothing publishes to npm while this is red, and Changesets cannot update the release PR.")
+            gh issue create --title "Release workflow is failing" --label release --body "$body"
+          fi
+          exit 1

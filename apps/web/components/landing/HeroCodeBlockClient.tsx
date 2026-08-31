@@ -45,7 +45,6 @@ export function HeroCodeBlockClient({ html, code }: HeroCodeBlockClientProps) {
       </div>
       <div
         className="p-5 [&_pre]:!bg-transparent [&_code]:text-sm [&_pre]:overflow-x-auto"
-        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>

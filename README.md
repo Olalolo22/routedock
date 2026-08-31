@@ -57,8 +57,8 @@ graph LR
 |---|---|---|
 | Application | voucher monotonic check | `packages/sdk/src/client/MppSessionClient.ts:currentCumulative` |
 | Application | manifest schema validation (AJV draft-07) | `packages/sdk/src/client/ModeRouter.ts` |
-| Database | monotonic cumulative trigger | `supabase/migrations/*_sessions.sql:enforce_monotonic_cumulative()` |
-| Database | RLS on sessions table | `supabase/migrations/*_rls.sql` |
+| Database | monotonic cumulative trigger | `supabase/migrations/001_init.sql:37,50` |
+| Database | RLS on sessions table | `supabase/migrations/001_init.sql:128-131` |
 | Contract | daily USDC cap policy | `contracts/agent-vault/src/lib.rs:__check_auth` |
 | Contract | endpoint allowlist policy | `contracts/agent-vault/src/lib.rs:__check_auth` |
 | Contract | session key expiry | `contracts/agent-vault/src/lib.rs:__check_auth` |
@@ -132,6 +132,8 @@ pnpm --filter provider-a dev
 Full demo (both providers + agent): see [`docs/AGENT_RUN_CHECKLIST.md`](docs/AGENT_RUN_CHECKLIST.md).
 
 Mainnet rollout: see [`docs/MAINNET_DEPLOYMENT.md`](docs/MAINNET_DEPLOYMENT.md).
+
+Redeploying `provider-a`/`provider-b`: read [`docs/PROVIDER_REDEPLOY_ORDERING.md`](docs/PROVIDER_REDEPLOY_ORDERING.md) first — a partial redeploy against the current npm SDK version breaks every live client.
 
 ---
 

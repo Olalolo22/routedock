@@ -1,18 +1,13 @@
 import { Keypair, Horizon } from '@stellar/stellar-sdk'
-import {
-  fetchManifest,
-  invalidateManifest as evictManifest,
-  selectMode,
-  type ModeSelectOptions,
-  type RouteDockLogger,
-} from './ModeRouter.js'
+import { fetchManifest, selectMode, assertManifestValid, type ModeSelectOptions, type RouteDockLogger } from './ModeRouter.js'
 import { X402Client } from './x402Client.js'
 import { MppChargeClient } from './MppChargeClient.js'
 import { MppSessionClient } from './MppSessionClient.js'
 import { prepareNulthSigner, NulthPolicyError, type NulthVaultConfig } from './NulthVault.js'
-import type { PaymentResult, SessionHandle, SessionOptions, RouteDockManifest, PaymentMode, EstimateCostResult } from '../types.js'
+import type { PaymentResult, SessionHandle, SessionOptions, RouteDockManifest, PaymentMode, EstimateCostResult, PreflightResult } from '../types.js'
 import { RouteDockManifestError, RouteDockPolicyRejectError, RouteDockTrustlineError } from '../errors.js'
 import type { RetryPolicy } from '../internal/retry.js'
+import { usdcToStroops } from '../internal/usdc.js'
 import { InMemorySpendStore, type DailySpend, type SpendStore } from '../store/SpendStore.js'
 
 // Commitment secrets are stored here instead of on the instance so they never
@@ -88,25 +83,11 @@ export interface RouteDockClientConfig {
 }
 
 /**
- * Convert a decimal USDC string (e.g. "0.0001", "1.00") to an exact
- * integer count of microUSDC (1 USDC = 10^7 units on Stellar) as a bigint.
- * Avoids floating point precision loss from parseFloat on repeated additions.
+ * @deprecated Use {@link usdcToStroops} — the same validated bigint converter,
+ * shared across the SDK and nulth-sdk. Kept as a thin alias so existing spend
+ * cap code keeps working during migration.
  */
-export function usdcToMicros(decimal: string): bigint {
-  const trimmed = decimal.trim()
-  const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed)
-  if (!match) {
-    throw new RouteDockPolicyRejectError(`invalid_usdc_amount:${decimal}`)
-  }
-
-  const [, whole = '0', fraction = ''] = match
-  if (fraction.length > 7) {
-    throw new RouteDockPolicyRejectError(`usdc_amount_too_precise:${decimal}`)
-  }
-
-  const paddedFraction = fraction.padEnd(7, '0')
-  return BigInt(whole) * 10_000_000n + BigInt(paddedFraction)
-}
+export const usdcToMicros = usdcToStroops
 
 /**
  * Well-known Stellar asset issuers, keyed by asset code then network.
@@ -219,12 +200,22 @@ export class RouteDockClient {
   }
 
   /**
-   * Check that the payer has a trustline for the payment asset. Safe to
+   * Check that the payer has a trustline for the payment asset and surface
+   * manifest metadata (regions, latency hints, capabilities). Safe to
    * call before committing to a payment — for approval gates and manual
    * trustline remediation.
    */
-  async preflight(manifest: RouteDockManifest): Promise<void> {
+  async preflight(manifest: RouteDockManifest): Promise<PreflightResult> {
+    assertManifestValid(manifest)
     await this._checkTrustline(manifest)
+    return {
+      hasTrustline: true,
+      asset: manifest.asset,
+      modes: manifest.modes,
+      ...(manifest.regions && { regions: manifest.regions }),
+      ...(manifest.latency_hints && { latency_hints: manifest.latency_hints }),
+      ...(manifest.capabilities && { capabilities: manifest.capabilities }),
+    }
   }
 
   /**
@@ -389,7 +380,15 @@ export class RouteDockClient {
         throw new RouteDockManifestError(`Unknown payment mode: ${mode as string}`)
     }
 
-    return { amount, asset: manifest.asset, mode, manifest }
+    return {
+      amount,
+      asset: manifest.asset,
+      mode,
+      manifest,
+      ...(manifest.regions && { regions: manifest.regions }),
+      ...(manifest.latency_hints && { latency_hints: manifest.latency_hints }),
+      ...(manifest.capabilities && { capabilities: manifest.capabilities }),
+    }
   }
 
   /**
@@ -478,13 +477,13 @@ export class RouteDockClient {
           ? persisted
           : { date: today, totalMicros: '0', endpoints: {} }
 
-      const amountMicros = usdcToMicros(amount)
+      const amountMicros = usdcToStroops(amount)
       const total = BigInt(current.totalMicros)
 
       // 1. Per-endpoint cap check
       const endpointCapStr = this.spendCap!.endpointCaps?.[endpointKey]
       if (endpointCapStr !== undefined) {
-        const endpointCapMicros = usdcToMicros(endpointCapStr)
+        const endpointCapMicros = usdcToStroops(endpointCapStr)
         const endpointTotal = BigInt(current.endpoints[endpointKey] ?? '0')
         if (endpointTotal + amountMicros > endpointCapMicros) {
           throw new RouteDockPolicyRejectError('local_endpoint_cap_exceeded')
@@ -492,7 +491,7 @@ export class RouteDockClient {
       }
 
       // 2. Global daily cap check
-      const globalCapMicros = usdcToMicros(this.spendCap!.daily)
+      const globalCapMicros = usdcToStroops(this.spendCap!.daily)
       if (total + amountMicros > globalCapMicros) {
         throw new RouteDockPolicyRejectError('local_daily_cap_exceeded')
       }

@@ -30,15 +30,47 @@ export interface SeenTxStore {
   set(key: string, record: SettlementRecord): Promise<void> | void
 }
 
+export interface InMemorySeenTxStoreOptions {
+  /** Maximum number of entries before FIFO eviction. Defaults to 10,000. */
+  maxEntries?: number
+  /** Log a startup warning about non-durability. Defaults to true. */
+  warn?: boolean
+}
+
 /**
  * Default in-memory {@link SeenTxStore}. Bounded by `maxEntries` with FIFO
  * eviction so a long-running process cannot grow without limit.
+ *
+ * **Not durable.** On serverless/edge runtimes each request may land on a
+ * fresh isolate with an empty cache, which causes duplicate settlements.
+ * Supply a persistent implementation (Supabase, Redis, …) in production.
  */
 export class InMemorySeenTxStore implements SeenTxStore {
   private readonly map = new Map<string, SettlementRecord>()
   private readonly order: string[] = []
 
-  constructor(private readonly maxEntries = 10_000) {}
+  constructor(maxEntriesOrOptions: number | InMemorySeenTxStoreOptions = 10_000) {
+    const options =
+      typeof maxEntriesOrOptions === 'number'
+        ? { maxEntries: maxEntriesOrOptions }
+        : maxEntriesOrOptions
+    this.maxEntries = options.maxEntries ?? 10_000
+
+    if (options.warn !== false) {
+      const isServerless =
+        typeof globalThis.navigator !== 'undefined' &&
+        globalThis.navigator.userAgent === 'Cloudflare-Workers'
+      if (isServerless) {
+        console.warn(
+          '[RouteDock] Using in-memory SeenTxStore: settlement deduplication is NOT durable ' +
+            'and resets on every isolate restart. Supply a SupabaseSeenTxStore (or other ' +
+            'durable SeenTxStore) for production safety.',
+        )
+      }
+    }
+  }
+
+  private readonly maxEntries: number
 
   get(key: string): SettlementRecord | undefined {
     return this.map.get(key)

@@ -88,3 +88,43 @@ jobs:
           pnpm --filter @routedock/routedock build
       - name: Typecheck all packages
         run: pnpm -r typecheck
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        uses: reviewdog/action-actionlint@v1
+        with:
+          fail_level: error
+      - name: Guard release.yml permissions
+        # release.yml has twice regressed to missing the permissions that make
+        # Changesets and the release watchdog work (#255, fixed in 8f3d82b).
+        # Fail fast if either goes missing again.
+        # Matches only real YAML keys, anchored to start-of-line indentation.
+        # A substring grep also matches the explanatory comments above the
+        # permissions block in release.yml, so it would pass even with the
+        # block deleted.
+        run: |
+          for perm in "contents" "pull-requests"; do
+            if ! grep -qE "^[[:space:]]+${perm}:[[:space:]]*write[[:space:]]*$" .github/workflows/release.yml; then
+              echo "::error file=.github/workflows/release.yml::missing required permission '${perm}: write'"
+              exit 1
+            fi
+          done
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Lint
+        run: pnpm -r lint
