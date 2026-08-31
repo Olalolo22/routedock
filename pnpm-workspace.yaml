@@ -3,6 +3,7 @@ packages:
   - 'packages/*'
   - 'agent'
   - 'contracts/*'
+  - 'examples/*'
 allowBuilds:
   esbuild: true
   msw: true

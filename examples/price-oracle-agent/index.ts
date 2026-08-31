@@ -12,7 +12,7 @@
  *   5. Provider settles on-chain; returns price data + X-Payment-Response.
  */
 
-import { RouteDockClient } from '@routedock/sdk'
+import { RouteDockClient } from '@routedock/routedock'
 
 const PROVIDER_A_URL = cleanUrl(process.env['PROVIDER_A_URL'] ?? 'https://api-a.routedock.xyz')
 const PRICE_URL = `${PROVIDER_A_URL}/price`

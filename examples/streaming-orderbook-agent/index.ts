@@ -1,4 +1,4 @@
-import { RouteDockClient } from '@routedock/sdk'
+import { RouteDockClient, type SessionHandle } from '@routedock/routedock'
 
 const TARGET_UPDATES = 100
 const PROVIDER_B_URL = cleanBaseUrl(process.env['PROVIDER_B_URL'] ?? 'https://api-b.routedock.xyz')
@@ -9,14 +9,14 @@ const COMMITMENT_SECRET = process.env['COMMITMENT_SECRET'] ?? ''
 
 // The session handle is assigned after openSession() so the Ctrl+C handler can
 // settle the highest voucher even if the user interrupts the stream.
-let session
+let session: SessionHandle | undefined
 let closing = false
 
-function cleanBaseUrl(url) {
+function cleanBaseUrl(url: string): string {
   return url.replace(/\/$/, '')
 }
 
-function requireSecret(name, value) {
+function requireSecret(name: string, value: string): void {
   // Stellar secret keys start with S; fail before any network calls if setup is
   // incomplete so first-time users get a direct fix.
   if (!value.startsWith('S')) {
@@ -24,16 +24,29 @@ function requireSecret(name, value) {
   }
 }
 
-function toNumber(value) {
+function toNumber(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function summarizeOrderbook(update) {
+interface OrderbookEntry {
+  price?: string
+  amount?: string
+}
+
+interface OrderbookPayload {
+  pair?: string
+  timestamp?: string
+  bids?: OrderbookEntry[]
+  asks?: OrderbookEntry[]
+}
+
+function summarizeOrderbook(update: unknown) {
   // Provider B returns top-of-book arrays as decimal strings. Convert only the
   // fields needed for the summary so malformed updates are easy to skip.
-  const bids = Array.isArray(update?.bids) ? update.bids : []
-  const asks = Array.isArray(update?.asks) ? update.asks : []
+  const payload = update as OrderbookPayload | undefined
+  const bids = Array.isArray(payload?.bids) ? payload!.bids! : []
+  const asks = Array.isArray(payload?.asks) ? payload!.asks! : []
   const bestBid = toNumber(bids[0]?.price)
   const bestAsk = toNumber(asks[0]?.price)
 
@@ -45,8 +58,8 @@ function summarizeOrderbook(update) {
   const mid = (bestAsk + bestBid) / 2
 
   return {
-    pair: update?.pair ?? 'unknown',
-    timestamp: update?.timestamp ?? new Date().toISOString(),
+    pair: payload?.pair ?? 'unknown',
+    timestamp: payload?.timestamp ?? new Date().toISOString(),
     bestBid,
     bestAsk,
     spread,
@@ -54,7 +67,7 @@ function summarizeOrderbook(update) {
   }
 }
 
-function printStats(index, stats) {
+function printStats(index: number, stats: NonNullable<ReturnType<typeof summarizeOrderbook>>): void {
   console.log(
     [
       `#${String(index).padStart(3, '0')}`,
@@ -68,7 +81,7 @@ function printStats(index, stats) {
   )
 }
 
-async function closeSession(reason) {
+async function closeSession(reason: string): Promise<void> {
   // close() sends the final cumulative commitment to Provider B, which submits
   // one on-chain settlement transaction for all vouchers used by the session.
   if (!session || closing) return
@@ -82,7 +95,7 @@ async function closeSession(reason) {
   console.log(`[session] total paid: ${closeResult.totalPaid} USDC`)
 }
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     // A long-lived agent should always close the session before exiting; otherwise
     // the provider has no final settlement request for the consumed stream.
@@ -95,7 +108,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   })
 }
 
-async function main() {
+async function main(): Promise<void> {
   requireSecret('AGENT_SECRET', AGENT_SECRET)
   requireSecret('COMMITMENT_SECRET', COMMITMENT_SECRET)
 
