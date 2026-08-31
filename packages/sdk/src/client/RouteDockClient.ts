@@ -1,10 +1,10 @@
 import { Keypair, Horizon } from '@stellar/stellar-sdk'
-import { fetchManifest, selectMode, type ModeSelectOptions, type RouteDockLogger } from './ModeRouter.js'
+import { fetchManifest, selectMode, assertManifestValid, type ModeSelectOptions, type RouteDockLogger } from './ModeRouter.js'
 import { X402Client } from './x402Client.js'
 import { MppChargeClient } from './MppChargeClient.js'
 import { MppSessionClient } from './MppSessionClient.js'
 import { prepareNulthSigner, NulthPolicyError, type NulthVaultConfig } from './NulthVault.js'
-import type { PaymentResult, SessionHandle, SessionOptions, RouteDockManifest, PaymentMode, EstimateCostResult } from '../types.js'
+import type { PaymentResult, SessionHandle, SessionOptions, RouteDockManifest, PaymentMode, EstimateCostResult, PreflightResult } from '../types.js'
 import { RouteDockManifestError, RouteDockPolicyRejectError, RouteDockTrustlineError } from '../errors.js'
 import type { RetryPolicy } from '../internal/retry.js'
 import { usdcToStroops } from '../internal/usdc.js'
@@ -200,12 +200,22 @@ export class RouteDockClient {
   }
 
   /**
-   * Check that the payer has a trustline for the payment asset. Safe to
+   * Check that the payer has a trustline for the payment asset and surface
+   * manifest metadata (regions, latency hints, capabilities). Safe to
    * call before committing to a payment — for approval gates and manual
    * trustline remediation.
    */
-  async preflight(manifest: RouteDockManifest): Promise<void> {
+  async preflight(manifest: RouteDockManifest): Promise<PreflightResult> {
+    assertManifestValid(manifest)
     await this._checkTrustline(manifest)
+    return {
+      hasTrustline: true,
+      asset: manifest.asset,
+      modes: manifest.modes,
+      ...(manifest.regions && { regions: manifest.regions }),
+      ...(manifest.latency_hints && { latency_hints: manifest.latency_hints }),
+      ...(manifest.capabilities && { capabilities: manifest.capabilities }),
+    }
   }
 
   /**
@@ -370,7 +380,15 @@ export class RouteDockClient {
         throw new RouteDockManifestError(`Unknown payment mode: ${mode as string}`)
     }
 
-    return { amount, asset: manifest.asset, mode, manifest }
+    return {
+      amount,
+      asset: manifest.asset,
+      mode,
+      manifest,
+      ...(manifest.regions && { regions: manifest.regions }),
+      ...(manifest.latency_hints && { latency_hints: manifest.latency_hints }),
+      ...(manifest.capabilities && { capabilities: manifest.capabilities }),
+    }
   }
 
   /**

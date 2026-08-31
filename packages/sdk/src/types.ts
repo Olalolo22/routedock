@@ -191,6 +191,22 @@ export interface PaymentResult {
   timestamp: number
 }
 
+/** Result returned by client.preflight() — summary of trustline status and provider capabilities */
+export interface PreflightResult {
+  /** Whether the trustline exists on-chain for the payer */
+  hasTrustline: boolean
+  /** Payment asset ticker, e.g. "USDC" */
+  asset: string
+  /** Payment modes supported by this provider */
+  modes: PaymentMode[]
+  /** Regions where this provider has infrastructure */
+  regions?: string[]
+  /** Provider-declared p50 latency in milliseconds per region code */
+  latency_hints?: Record<string, number>
+  /** Optional protocol features supported by this provider */
+  capabilities?: RouteDockManifest['capabilities']
+}
+
 /** Result returned by client.estimateCost() — the expected charge without submitting any transaction */
 export interface EstimateCostResult {
   /** Expected charge in the payment asset (decimal string, e.g. "0.001") */
@@ -201,6 +217,12 @@ export interface EstimateCostResult {
   mode: PaymentMode
   /** Full manifest — available for approval-gate / budget-routing decisions */
   manifest: RouteDockManifest
+  /** Regions where this provider has infrastructure */
+  regions?: string[]
+  /** Provider-declared p50 latency in milliseconds per region code */
+  latency_hints?: Record<string, number>
+  /** Optional protocol features supported by this provider */
+  capabilities?: RouteDockManifest['capabilities']
 }
 
 /** Result returned by session.close() */
