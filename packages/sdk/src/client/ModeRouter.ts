@@ -58,6 +58,29 @@ function assertManifestActive(manifest: RouteDockManifest, baseUrl: string): voi
   }
 }
 
+/**
+ * Validate semantic constraints for manifest fields beyond JSON schema syntax.
+ * Enforces that all keys in `latency_hints` must be a subset of declared `regions`.
+ */
+export function assertManifestValid(manifest: RouteDockManifest, baseUrl?: string): void {
+  const context = baseUrl ? ` at ${baseUrl}` : ''
+  if (manifest.latency_hints !== undefined) {
+    if (!Array.isArray(manifest.regions) || manifest.regions.length === 0) {
+      throw new RouteDockManifestError(
+        `Invalid manifest${context}: latency_hints defined without declaring regions`,
+      )
+    }
+    const regionSet = new Set(manifest.regions)
+    for (const region of Object.keys(manifest.latency_hints)) {
+      if (!regionSet.has(region)) {
+        throw new RouteDockManifestError(
+          `Invalid manifest${context}: latency_hints key '${region}' is not declared in regions (${manifest.regions.join(', ')})`,
+        )
+      }
+    }
+  }
+}
+
 interface CacheEntry {
   manifest: RouteDockManifest
   fetchedAt: number
@@ -170,6 +193,7 @@ export async function fetchManifest(
     // different anchor must still have the binding enforced.
     verifyManifestSignature(cached.manifest, expectedPayee)
     assertClientVersionSupported(cached.manifest, baseUrl)
+    assertManifestValid(cached.manifest, baseUrl)
     assertManifestActive(cached.manifest, baseUrl)
     return cached.manifest
   }
@@ -211,6 +235,7 @@ export async function fetchManifest(
     }
 
     const manifest = raw as unknown as RouteDockManifest
+    assertManifestValid(manifest, baseUrl)
     verifyManifestSignature(manifest, expectedPayee)
     assertClientVersionSupported(manifest, baseUrl)
     assertManifestActive(manifest, baseUrl)
@@ -347,4 +372,35 @@ export function selectMode(
   throw new RouteDockNoSupportedModeError(
     `No supported payment mode found in manifest (modes: ${modes.join(', ')})`,
   )
+}
+
+/**
+ * Rank a list of provider manifests by estimated p50 round-trip latency for a given target region.
+ * Manifests declaring latency_hints for the target region are sorted ascending by latency (lowest first).
+ * Manifests that list the region in `regions` without an explicit latency hint come next.
+ * Manifests not advertising the target region come last.
+ */
+export function rankProvidersByLatency(
+  manifests: RouteDockManifest[],
+  targetRegion: string,
+): RouteDockManifest[] {
+  return [...manifests].sort((a, b) => {
+    const latA = a.latency_hints?.[targetRegion]
+    const latB = b.latency_hints?.[targetRegion]
+    const inRegionsA = a.regions?.includes(targetRegion) ?? false
+    const inRegionsB = b.regions?.includes(targetRegion) ?? false
+
+    // Both have numeric latency hints
+    if (latA !== undefined && latB !== undefined) {
+      return latA - latB
+    }
+    if (latA !== undefined) return -1
+    if (latB !== undefined) return 1
+
+    // Neither has explicit latency hint, check regions inclusion
+    if (inRegionsA && !inRegionsB) return -1
+    if (!inRegionsA && inRegionsB) return 1
+
+    return 0
+  })
 }
