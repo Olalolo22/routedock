@@ -1,5 +1,5 @@
 import { Keypair, Horizon } from '@stellar/stellar-sdk'
-import { fetchManifest, selectMode, assertManifestValid, type ModeSelectOptions, type RouteDockLogger } from './ModeRouter.js'
+import { fetchManifest, selectMode, invalidateManifest as evictManifest, assertManifestValid, type ModeSelectOptions, type RouteDockLogger } from './ModeRouter.js'
 import { X402Client } from './x402Client.js'
 import { MppChargeClient } from './MppChargeClient.js'
 import { MppSessionClient } from './MppSessionClient.js'
@@ -448,6 +448,17 @@ export class RouteDockClient {
    */
   dispose(): void {
     _secrets.delete(this)
+  }
+
+  /**
+   * Evict the cached manifest for `url` immediately, so the next pay() /
+   * estimateCost() / openSession() call re-fetches it instead of routing on
+   * the stale cached copy. Use when a provider signals their manifest
+   * changed (e.g. after a config update) and the change must take effect
+   * before the cache TTL expires.
+   */
+  invalidateManifest(url: string): void {
+    evictManifest(new URL(url).origin)
   }
 
   /**
