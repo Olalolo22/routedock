@@ -100,9 +100,11 @@ export class ChannelSession extends DurableObject<Env> {
     if (supabase && env.STELLAR_PAYEE_SECRET) {
       const baseUrl = env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'
       const signed = signManifest(manifest, env.STELLAR_PAYEE_SECRET)
-      void registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
-        console.error('[registry] Failed to register provider-b:', err)
-      })
+      this.ctx.waitUntil(
+        registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
+          console.error('[registry] Failed to register provider-b:', err)
+        }),
+      )
     }
 
     const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-b.routedock.xyz'}/stream/orderbook`

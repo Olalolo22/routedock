@@ -77,7 +77,7 @@ async function fetchOrderBook(network: Network, limit: number): Promise<OrderBoo
   return (await response.json()) as OrderBookResponse
 }
 
-function createApp(env: Env): Hono {
+function createApp(env: Env, ctx: ExecutionContext): Hono {
   const network = resolveNetwork(env.STELLAR_NETWORK)
   const assetContract = resolveAssetContract(env, network)
 
@@ -102,9 +102,11 @@ function createApp(env: Env): Hono {
   if (supabase) {
     const baseUrl = env.PUBLIC_BASE_URL ?? 'https://api-a.routedock.xyz'
     const signed = signManifest(manifest, env.STELLAR_PAYEE_SECRET)
-    void registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
-      console.error('[registry] Failed to register provider-a:', err)
-    })
+    ctx.waitUntil(
+      registerProvider({ supabase, manifest: signed, baseUrl, verified: true }).catch((err) => {
+        console.error('[registry] Failed to register provider-a:', err)
+      }),
+    )
   }
 
   const providerUrl = `${env.PUBLIC_BASE_URL ?? 'https://api-a.routedock.xyz'}/price`
@@ -205,7 +207,7 @@ export default {
     if (new URL(request.url).pathname === '/health') return healthResponse(env)
 
     try {
-      cachedApp ??= createApp(env)
+      cachedApp ??= createApp(env, ctx)
     } catch (err) {
       console.error('[startup]', err)
       return Response.json({ error: 'Provider misconfigured' }, { status: 500 })
