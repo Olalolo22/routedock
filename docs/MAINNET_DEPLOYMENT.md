@@ -146,7 +146,6 @@ Deploy-time arguments configure the vault atomically in `__constructor`:
 
 Read back the deployed policy to confirm it landed on-chain (simulate-only via `--send=no`):
 
-```bash
 stellar contract invoke --id <AGENT_VAULT_CONTRACT_ID> --source-account <VAULT_ADMIN_ALIAS> --network mainnet --send=no -- daily_cap
 stellar contract invoke --id <AGENT_VAULT_CONTRACT_ID> --source-account <VAULT_ADMIN_ALIAS> --network mainnet --send=no -- allowlist
 stellar contract invoke --id <AGENT_VAULT_CONTRACT_ID> --source-account <VAULT_ADMIN_ALIAS> --network mainnet --send=no -- expiry_ledger
@@ -379,11 +378,19 @@ When an agent secret or session key is suspected compromised, follow this ordere
 2. **Sweep agent account funds & rotate `AGENT_SECRET`:**
    Because the reference agent pays directly from its Stellar keypair, immediately transfer remaining USDC and XLM off the agent account to a cold storage account:
    ```bash
+   # Sweep USDC
    stellar tx new payment \
      --source-account <AGENT_ALIAS> \
      --destination <COLD_G_ADDRESS> \
      --asset USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN \
-     --amount <AMOUNT_STROOPS> \
+     --amount <USDC_STROOPS> \
+     --network mainnet
+
+   # Sweep native XLM (leave the minimum base reserve)
+   stellar tx new payment \
+     --source-account <AGENT_ALIAS> \
+     --destination <COLD_G_ADDRESS> \
+     --amount <XLM_STROOPS> \
      --network mainnet
    ```
    Then generate a new `AGENT_SECRET` and update `agent/.env`. This fund sweep is the critical step that prevents a leaked `AGENT_SECRET` from draining the agent account.
